@@ -1,8 +1,16 @@
-import { CartItem } from "@/context/CartContext";
+/**
+ * Interfaz local para compatibilidad con el nuevo formato de imágenes.
+ */
+export interface CartItem {
+  nombre: string;
+  precio: number;
+  cantidad: number;
+  imagen_url: string | string[]; // Acepta string único o Array de strings
+}
 
 /**
  * Envía el pedido a WhatsApp con un formato profesional y limpio.
- * @param cart - Array de items del carrito con el tipo CartItem definido en el contexto.
+ * @param cart - Array de items del carrito.
  * @param total - Monto total de la compra.
  */
 export const enviarPedidoWhatsApp = (cart: CartItem[], total: number) => {

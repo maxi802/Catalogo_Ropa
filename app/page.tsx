@@ -13,12 +13,13 @@ const supabase = createClient(
 const categoriasMenu = ['Todos', 'Zapatillas', 'Remeras', 'Pantalones'];
 const ORDEN_PRIORIDAD = ['Zapatillas', 'Remeras', 'Pantalones'];
 
+// --- CAMBIO 1: La interfaz ahora espera un arreglo de strings ---
 interface Producto {
   id: string;
   nombre: string;
   precio: number;
   categoria: string;
-  imagen_url: string;
+  imagen_url: string[]; // Cambiado de string a string[]
   stock: number;
 }
 
@@ -165,7 +166,12 @@ export default function TiendaPage() {
               ) : (
                 carrito.map(item => (
                   <div key={item.id} className="flex gap-4 items-center bg-zinc-50 p-4 rounded-3xl">
-                    <img src={item.imagen_url} className="w-16 h-16 rounded-2xl object-cover" alt="" />
+                    {/* --- CAMBIO 2: Mostrar la primera imagen en el carrito --- */}
+                    <img 
+                      src={Array.isArray(item.imagen_url) ? item.imagen_url[0] : item.imagen_url} 
+                      className="w-16 h-16 rounded-2xl object-cover" 
+                      alt="" 
+                    />
                     <div className="flex-1">
                       <h4 className="text-[10px] font-black uppercase truncate">{item.nombre}</h4>
                       <p className="text-xs font-bold">$ {item.precio * item.cantidad}</p>
@@ -187,7 +193,7 @@ export default function TiendaPage() {
 
             <div className="mt-8 pt-8 border-t">
               <div className="flex justify-between items-end mb-6">
-                <span className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Total Estimado</span>
+                <span className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Total</span>
                 <span className="text-3xl font-black tracking-tighter">$ {totalCarrito}</span>
               </div>
               <button 
@@ -270,10 +276,14 @@ export default function TiendaPage() {
                   {secciones[categoria].map((prod) => (
                     <div key={prod.id} className="group">
                       <Link href={`/producto/${prod.id}`}>
-                        {/* CAMBIO CLAVE: De aspect-3/4 a aspect-square para que no se corte */}
                         <div className="relative aspect-square mb-5 overflow-hidden rounded-4xl bg-zinc-50 border border-zinc-100 cursor-pointer">
-                          {prod.imagen_url && (
-                            <img src={prod.imagen_url} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" alt={prod.nombre} />
+                          {/* --- CAMBIO 3: Mostrar la primera imagen de la lista en la grilla --- */}
+                          {prod.imagen_url && prod.imagen_url.length > 0 && (
+                            <img 
+                              src={prod.imagen_url[0]} 
+                              className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" 
+                              alt={prod.nombre} 
+                            />
                           )}
                           {prod.stock <= 0 && (
                             <div className="absolute inset-0 bg-white/60 flex items-center justify-center">

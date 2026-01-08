@@ -10,13 +10,15 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
+const CATEGORIAS = ["Remeras", "Pantalones", "Zapatillas", "Accesorios", "Ofertas"];
+
 interface ProductoAdmin {
   id: string;
   nombre: string;
   precio: number;
   categoria: string;
   stock: number;
-  imagen_url: string;
+  imagen_url: string[] | string | null; 
   descripcion: string;
 }
 
@@ -27,15 +29,15 @@ export default function AdminPage() {
   const [mensaje, setMensaje] = useState('');
   const [productos, setProductos] = useState<ProductoAdmin[]>([]);
   
-  const [fotoArchivo, setFotoArchivo] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [fotosLocales, setFotosLocales] = useState<{file: File, preview: string}[]>([]);
+  const [urlsExternas, setUrlsExternas] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [editando, setEditando] = useState<ProductoAdmin | null>(null);
-  const [fotoEditArchivo, setFotoEditArchivo] = useState<File | null>(null);
-  const [previewEditUrl, setPreviewEditUrl] = useState<string | null>(null);
+  const [archivoParaSubir, setArchivoParaSubir] = useState<{file: File, tempUrl: string} | null>(null);
   const fileEditInputRef = useRef<HTMLInputElement>(null);
 
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -52,115 +54,101 @@ export default function AdminPage() {
     checkUser();
   }, [router]);
 
+  const getUrlsArray = (urls: string[] | string | null | undefined): string[] => {
+    if (!urls) return [];
+    if (Array.isArray(urls)) return urls.filter(u => u && u.trim() !== "");
+    if (typeof urls === 'string') {
+      return urls.split(',').map(u => u.trim()).filter(u => u !== "");
+    }
+    return [];
+  };
+
   const fetchProductos = async () => {
-    const { data, error } = await supabase
-      .from('productos')
-      .select('*')
-      .order('nombre');
-    
-    if (error) return;
+    const { data, error } = await supabase.from('productos').select('*').order('nombre');
     if (data) setProductos(data as ProductoAdmin[]);
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, isEdit: boolean) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      if (isEdit) {
-        setFotoEditArchivo(file);
-        setPreviewEditUrl(URL.createObjectURL(file));
-      } else {
-        setFotoArchivo(file);
-        setPreviewUrl(URL.createObjectURL(file));
-      }
-    }
-  };
-
-  const eliminarProducto = async (id: string, nombre: string, imageUrl: string) => {
-    const confirmar = window.confirm(`¿Estás seguro de eliminar "${nombre}"?`);
-    if (confirmar) {
-      try {
-        if (imageUrl && imageUrl.includes('fotos-productos')) {
-          const nombreArchivo = imageUrl.split('/').pop();
-          if (nombreArchivo) {
-            await supabase.storage.from('fotos-productos').remove([nombreArchivo]);
-          }
-        }
-        await supabase.from('productos').delete().eq('id', id);
-        setProductos(prev => prev.filter(p => p.id !== id));
-      } catch (err) {
-        console.error("Error al eliminar", err);
-      }
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const form = e.currentTarget;
-    const formData = new FormData(form);
-    
-    if (!fotoArchivo) return setMensaje('❌ Selecciona una foto');
-    setLoading(true);
-
+  const eliminarProducto = async (id: string, nombre: string) => {
+    if (!confirm(`¿Estás seguro de eliminar "${nombre}"?`)) return;
     try {
-      const ext = fotoArchivo.name.split('.').pop();
-      const fileName = `${Date.now()}.${ext}`;
-      await supabase.storage.from('fotos-productos').upload(fileName, fotoArchivo);
-      const { data: { publicUrl } } = supabase.storage.from('fotos-productos').getPublicUrl(fileName);
-
-      const { error } = await supabase.from('productos').insert([{
-        nombre: formData.get('nombre') as string,
-        precio: parseFloat(formData.get('precio') as string) || 0,
-        categoria: formData.get('categoria') as string,
-        stock: parseInt(formData.get('stock') as string) || 0,
-        descripcion: formData.get('descripcion') as string,
-        imagen_url: publicUrl
-      }]);
-
+      const { error } = await supabase.from('productos').delete().eq('id', id);
       if (error) throw error;
-      setMensaje('✅ ¡Publicado!');
-      form.reset();
-      setPreviewUrl(null);
-      setFotoArchivo(null);
-      fetchProductos();
+      setProductos(productos.filter(p => p.id !== id));
     } catch (err) {
-      setMensaje('❌ Error al subir');
-    } finally {
-      setLoading(false);
+      alert("Error al eliminar");
     }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, isEdit: boolean) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    if (isEdit && editando) {
+        const file = files[0];
+        const tempUrl = URL.createObjectURL(file);
+        setArchivoParaSubir({ file, tempUrl });
+        const currentUrls = getUrlsArray(editando.imagen_url);
+        setEditando({ ...editando, imagen_url: [tempUrl, ...currentUrls] });
+    } else {
+        const nuevosArchivos = Array.from(files).map(file => ({
+            file,
+            preview: URL.createObjectURL(file)
+        }));
+        setFotosLocales(prev => [...prev, ...nuevosArchivos]);
+    }
+    e.target.value = '';
+  };
+
+  const eliminarFotoLocal = (index: number) => {
+    setFotosLocales(prev => {
+        const nuevaLista = [...prev];
+        URL.revokeObjectURL(nuevaLista[index].preview);
+        nuevaLista.splice(index, 1);
+        return nuevaLista;
+    });
   };
 
   const handleUpdate = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!editando) return;
     setLoading(true);
-
+    
     try {
-      let urlFinal = editando.imagen_url;
+      let urlsFinales = [...getUrlsArray(editando.imagen_url)];
 
-      if (fotoEditArchivo) {
-        const ext = fotoEditArchivo.name.split('.').pop();
+      if (archivoParaSubir) {
+        const ext = archivoParaSubir.file.name.split('.').pop();
         const fileName = `${Date.now()}.${ext}`;
-        await supabase.storage.from('fotos-productos').upload(fileName, fotoEditArchivo);
-        const { data: { publicUrl } } = supabase.storage.from('fotos-productos').getPublicUrl(fileName);
-        urlFinal = publicUrl;
+        const { error: uploadError } = await supabase.storage
+          .from('fotos-productos')
+          .upload(fileName, archivoParaSubir.file);
+        
+        if (uploadError) throw uploadError;
+
+        const { data: { publicUrl } } = supabase.storage
+          .from('fotos-productos')
+          .getPublicUrl(fileName);
+          
+        urlsFinales = urlsFinales.map(u => u === archivoParaSubir.tempUrl ? publicUrl : u);
       }
+
+      const urlsParaEnviar = urlsFinales.filter(u => u && !u.startsWith('blob:'));
 
       const { error } = await supabase.from('productos').update({
         nombre: editando.nombre,
-        precio: editando.precio || 0,
-        categoria: editando.categoria,
-        stock: editando.stock || 0,
+        precio: Number(editando.precio) || 0,
+        stock: Number(editando.stock) || 0,
         descripcion: editando.descripcion || "",
-        imagen_url: urlFinal
+        categoria: editando.categoria || "General",
+        imagen_url: urlsParaEnviar 
       }).eq('id', editando.id);
 
       if (error) throw error;
       
       setEditando(null);
-      setFotoEditArchivo(null);
-      setPreviewEditUrl(null);
+      setArchivoParaSubir(null);
       fetchProductos();
-      alert("¡Actualizado con éxito!");
+      alert("¡Producto actualizado!");
     } catch (err) {
       alert("Error al actualizar");
     } finally {
@@ -168,65 +156,178 @@ export default function AdminPage() {
     }
   };
 
-  if (checkingAuth) return <div className="min-h-screen bg-white flex items-center justify-center text-black font-bold uppercase animate-pulse italic">Cargando Panel...</div>;
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const formData = new FormData(form);
+    setLoading(true);
+    setMensaje('');
+
+    try {
+      const urlsSubidas: string[] = [];
+
+      // Subida de archivos
+      for (const item of fotosLocales) {
+        const ext = item.file.name.split('.').pop();
+        const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${ext}`;
+        const { error: upError } = await supabase.storage.from('fotos-productos').upload(fileName, item.file);
+        
+        if (upError) throw upError;
+
+        const { data: { publicUrl } } = supabase.storage.from('fotos-productos').getPublicUrl(fileName);
+        urlsSubidas.push(publicUrl);
+      }
+
+      const urlsFinales = [...urlsSubidas, ...urlsExternas];
+
+      // Inserción en DB
+      const { error: insertError } = await supabase.from('productos').insert([{
+        nombre: formData.get('nombre') as string,
+        precio: parseFloat(formData.get('precio') as string) || 0,
+        categoria: formData.get('categoria') as string,
+        stock: parseInt(formData.get('stock') as string) || 0,
+        descripcion: formData.get('descripcion') as string || "",
+        imagen_url: urlsFinales 
+      }]);
+
+      if (insertError) throw insertError;
+
+      // ÉXITO: Limpiamos todo
+      setMensaje('✅ ¡Publicado con éxito!');
+      setFotosLocales([]);
+      setUrlsExternas([]);
+      form.reset();
+      fetchProductos();
+
+      } catch (err) {
+        const error = err as Error; // Convertimos el error a un tipo conocido
+        console.error("Error completo:", error);
+        setMensaje(`❌ Error: ${error.message || 'No se pudo publicar'}`);
+      } finally {
+      setLoading(false);
+    }
+  };
+
+  const onDragStart = (index: number) => setDraggedIndex(index);
+  const onDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    if (draggedIndex === null || draggedIndex === index || !editando) return;
+    const nuevasUrls = [...getUrlsArray(editando.imagen_url)];
+    const itemArrastrado = nuevasUrls[draggedIndex];
+    nuevasUrls.splice(draggedIndex, 1);
+    nuevasUrls.splice(index, 0, itemArrastrado);
+    setDraggedIndex(index);
+    setEditando({ ...editando, imagen_url: nuevasUrls });
+  };
+
+  const eliminarFotoDeEdicion = (indexAEliminar: number) => {
+    if (!editando) return;
+    const actuales = getUrlsArray(editando.imagen_url);
+    const nuevasUrls = actuales.filter((_, index) => index !== indexAEliminar);
+    setEditando({ ...editando, imagen_url: nuevasUrls });
+  };
+
+  if (checkingAuth) return <div className="min-h-screen flex items-center justify-center font-black animate-pulse uppercase">Cargando Admin...</div>;
 
   return (
-    <div className="min-h-screen bg-zinc-50 p-4 md:p-8 font-sans text-black">
+    <div className="min-h-screen bg-zinc-50 p-4 md:p-8 text-black font-sans">
       <div className="mx-auto max-w-2xl">
         <div className="flex justify-between items-center mb-8">
-          <Link href="/" className="text-[10px] font-black uppercase bg-white px-4 py-2 rounded-xl border border-zinc-200 text-black shadow-sm">← Ir a la Web</Link>
-          <button onClick={() => supabase.auth.signOut().then(() => router.push('/login'))} className="text-[10px] font-black uppercase bg-red-500 text-white px-4 py-2 rounded-xl shadow-lg">Cerrar Sesión</button>
+          <Link href="/" className="text-[10px] font-black uppercase bg-white px-4 py-2 rounded-xl border border-zinc-200 shadow-sm">← Volver al Catalogo</Link>
+          <div className="text-center">
+            <p className="text-[8px] font-black uppercase text-zinc-400">Administrador Logueado</p>
+            <p className="text-[10px] font-bold italic">{session?.user.email}</p>
+          </div>
+          <button onClick={() => supabase.auth.signOut().then(() => router.push('/login'))} className="text-[10px] font-black uppercase bg-red-500 text-white px-4 py-2 rounded-xl">Cerrar Session</button>
         </div>
 
-        <h1 className="text-4xl font-black italic tracking-tighter text-center uppercase mb-10 text-black">Administración</h1>
-
-        {/* FORMULARIO CREAR */}
+        {/* --- FORMULARIO NUEVO PRODUCTO --- */}
         <div className="bg-white p-8 rounded-[2.5rem] border border-zinc-100 shadow-xl mb-12">
-          <form onSubmit={handleSubmit} className="space-y-5">
-             <div onClick={() => fileInputRef.current?.click()} className="relative w-full h-56 bg-zinc-50 rounded-4xl border-2 border-dashed border-zinc-200 flex flex-col items-center justify-center overflow-hidden cursor-pointer hover:border-black transition-all group">
-              {previewUrl ? <img src={previewUrl} className="w-full h-full object-cover" alt="" /> : <div className="text-center"><span className="text-3xl block mb-2">📸</span><span className="text-[10px] font-black uppercase text-zinc-400">Subir foto del producto</span></div>}
-              <input type="file" ref={fileInputRef} onChange={(e) => handleFileChange(e, false)} accept="image/*" className="hidden" />
+          <h2 className="text-xl font-black uppercase italic mb-6">Nuevo Producto</h2>
+          <form onSubmit={handleSubmit} className="space-y-6">
+            
+            <div className="space-y-3">
+              <label className="text-[10px] font-black uppercase text-zinc-400 ml-2 italic">Galería de fotos</label>
+              <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar">
+                <div onClick={() => fileInputRef.current?.click()} className="w-24 h-24 shrink-0 bg-zinc-50 rounded-3xl border-2 border-dashed border-zinc-200 flex flex-col items-center justify-center cursor-pointer hover:bg-zinc-100 transition-all">
+                  <span className="text-xl">+</span>
+                  <input type="file" multiple ref={fileInputRef} onChange={(e) => handleFileChange(e, false)} className="hidden" accept="image/*" />
+                </div>
+                {fotosLocales.map((foto, i) => (
+                  <div key={`local-${i}`} className="relative w-24 h-24 shrink-0 rounded-3xl overflow-hidden border">
+                    <img src={foto.preview} className="w-full h-full object-cover" alt="" />
+                    <button type="button" onClick={() => eliminarFotoLocal(i)} className="absolute top-1 right-1 bg-red-500 text-white w-5 h-5 rounded-full text-[10px]">✕</button>
+                  </div>
+                ))}
+                {urlsExternas.map((url, i) => (
+                  <div key={`ext-${i}`} className="relative w-24 h-24 shrink-0 rounded-3xl overflow-hidden border">
+                    <img src={url} className="w-full h-full object-cover" alt="" />
+                    <button type="button" onClick={() => setUrlsExternas(urlsExternas.filter((_, idx) => idx !== i))} className="absolute top-1 right-1 bg-red-500 text-white w-5 h-5 rounded-full text-[10px]">✕</button>
+                  </div>
+                ))}
+              </div>
             </div>
-            <input name="nombre" placeholder="Nombre del Producto" required className="w-full p-4 bg-zinc-50 rounded-2xl border-none outline-none focus:ring-2 ring-black text-black font-bold" />
-            <textarea name="descripcion" placeholder="Descripción detallada..." required className="w-full p-4 bg-zinc-50 rounded-2xl border-none outline-none resize-none h-28 text-black" />
-            <div className="grid grid-cols-2 gap-4">
-              <input name="precio" type="number" step="0.01" placeholder="Precio ($)" required className="p-4 bg-zinc-50 rounded-2xl border-none outline-none text-black font-bold" />
-              <input name="stock" type="number" placeholder="Stock" defaultValue="1" required className="p-4 bg-zinc-50 rounded-2xl border-none outline-none text-black font-bold" />
+
+            <div className="space-y-4">
+              <input 
+                placeholder="Pegar URL de imagen externa y Enter..."
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const val = e.currentTarget.value.trim();
+                    if (val) { setUrlsExternas([...urlsExternas, val]); e.currentTarget.value = ""; }
+                  }
+                }}
+                className="w-full p-4 bg-zinc-50 rounded-2xl border border-zinc-100 font-bold text-xs outline-none focus:border-black transition-all"
+              />
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <input name="nombre" placeholder="Nombre" required className="p-4 bg-zinc-50 rounded-2xl font-bold border border-zinc-100 outline-none focus:border-black transition-all" />
+                
+                <select name="categoria" required defaultValue="" className="p-4 bg-zinc-50 rounded-2xl font-bold border border-zinc-100 outline-none focus:border-black transition-all appearance-none cursor-pointer">
+                  <option value="" disabled>Elegir Categoría</option>
+                  {CATEGORIAS.map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </div>
+              
+              <textarea name="descripcion" placeholder="Descripción del producto..." rows={3} className="w-full p-4 bg-zinc-50 rounded-2xl font-bold border border-zinc-100 outline-none focus:border-black transition-all resize-none" />
+
+              <div className="grid grid-cols-2 gap-4">
+                <input name="precio" type="number" step="0.01" placeholder="Precio" required className="p-4 bg-zinc-50 rounded-2xl font-bold border border-zinc-100 outline-none focus:border-black transition-all" />
+                <input name="stock" type="number" placeholder="Stock" required className="p-4 bg-zinc-50 rounded-2xl font-bold border border-zinc-100 outline-none focus:border-black transition-all" />
+              </div>
             </div>
-            <select name="categoria" className="w-full p-4 bg-zinc-50 rounded-2xl border-none outline-none text-black font-black uppercase text-[10px]">
-              <option value="Zapatillas">Zapatillas</option>
-              <option value="Remeras">Remeras</option>
-              <option value="Pantalones">Pantalones</option>
-            </select>
-            <button disabled={loading} className="w-full py-5 bg-black text-white rounded-3xl font-black uppercase tracking-widest hover:bg-zinc-800 transition-all shadow-lg active:scale-95">
-              {loading ? 'PUBLICANDO...' : 'PUBLICAR AHORA'}
+
+            <button disabled={loading} className="w-full py-5 bg-black text-white rounded-3xl font-black uppercase tracking-widest active:scale-95 transition-all shadow-xl shadow-black/10">
+              {loading ? 'Subiendo...' : 'Publicar Producto'}
             </button>
           </form>
-          {mensaje && <p className="mt-4 text-center text-[10px] font-black uppercase text-black bg-zinc-100 py-2 rounded-lg">{mensaje}</p>}
+          {mensaje && <p className="mt-4 text-center text-[10px] font-black uppercase">{mensaje}</p>}
         </div>
 
-        {/* LISTA INVENTARIO CORREGIDA (TEXTO COMPLETO) */}
-        <div className="bg-white p-8 rounded-[2.5rem] border border-zinc-100 shadow-xl">
-          <h2 className="text-xs font-black uppercase tracking-[0.2em] mb-8 text-zinc-400 text-center">Gestión de Inventario</h2>
-          <div className="grid gap-4">
+        {/* --- LISTADO --- */}
+        <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-zinc-100">
+          <div className="space-y-3">
             {productos.map((prod) => (
-              <div key={prod.id} className="flex items-center justify-between p-5 bg-zinc-50 rounded-3xl hover:bg-zinc-100 transition-colors border border-zinc-100">
-                <div className="flex items-center gap-4 flex-1 min-w-0"> {/* flex-1 permite que el texto use el espacio disponible */}
-                  <div className="w-12 h-12 rounded-xl overflow-hidden border-2 border-white bg-white shadow-sm shrink-0">
-                    <img src={prod.imagen_url} className="w-full h-full object-cover" alt="" />
+              <div key={prod.id} className="flex items-center justify-between p-4 bg-zinc-50 rounded-3xl border border-zinc-100 gap-4">
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                  <div className="w-12 h-12 shrink-0 rounded-xl bg-white overflow-hidden shadow-sm flex items-center justify-center">
+                    {getUrlsArray(prod.imagen_url)[0] ? (
+                      <img src={getUrlsArray(prod.imagen_url)[0]} className="w-full h-full object-cover" alt="" />
+                    ) : (
+                      <span className="text-[8px] font-black text-zinc-300">N/A</span>
+                    )}
                   </div>
-                  <div className="flex flex-col min-w-0">
-                    <span className="text-[11px] font-black uppercase text-black leading-tight wrap-break-word">
-                      {prod.nombre}
-                    </span>
-                    <span className="text-[9px] font-bold text-zinc-400 italic">
-                      Stock: {prod.stock} unidades
-                    </span>
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-black uppercase leading-tight wrap-break-word">{prod.nombre}</p>
+                    <p className="text-[8px] font-bold text-zinc-400 uppercase mt-0.5">{prod.categoria}</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2 ml-4">
-                   <button onClick={() => setEditando(prod)} className="w-11 h-11 bg-white border border-zinc-200 rounded-xl flex items-center justify-center text-lg shadow-sm hover:bg-black hover:text-white transition-all">✏️</button>
-                   <button onClick={() => eliminarProducto(prod.id, prod.nombre, prod.imagen_url)} className="w-11 h-11 bg-red-50 text-red-500 rounded-xl flex items-center justify-center text-lg shadow-sm hover:bg-red-500 hover:text-white transition-all">🗑️</button>
+                <div className="flex gap-2 shrink-0">
+                  <button onClick={() => setEditando(prod)} className="w-10 h-10 bg-white border border-zinc-200 rounded-xl flex items-center justify-center shadow-sm hover:bg-black hover:text-white transition-all">✏️</button>
+                  <button onClick={() => eliminarProducto(prod.id, prod.nombre)} className="w-10 h-10 bg-white border border-red-100 rounded-xl flex items-center justify-center shadow-sm hover:bg-red-500 hover:text-white transition-all">🗑️</button>
                 </div>
               </div>
             ))}
@@ -234,64 +335,52 @@ export default function AdminPage() {
         </div>
       </div>
 
-      {/* MODAL DE EDICIÓN - CORRECCIÓN DE ERRORES */}
+      {/* --- MODAL EDITAR --- */}
       {editando && (
         <div className="fixed inset-0 z-100 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/70 backdrop-blur-md" onClick={() => setEditando(null)} />
-          <form onSubmit={handleUpdate} className="relative bg-white w-full max-w-lg p-8 rounded-[3rem] shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto no-scrollbar border border-zinc-100">
-            <h2 className="text-2xl font-black uppercase italic tracking-tighter text-black mb-4">Editar Datos</h2>
-            
-            <div onClick={() => fileEditInputRef.current?.click()} className="relative w-full h-44 bg-zinc-50 rounded-4xl border-2 border-dashed border-zinc-200 flex items-center justify-center overflow-hidden cursor-pointer group">
-              <img src={previewEditUrl || editando.imagen_url} className="w-full h-full object-cover" alt="" />
-              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white font-black text-[10px] uppercase">Cambiar Imagen</div>
-              <input type="file" ref={fileEditInputRef} onChange={(e) => handleFileChange(e, true)} accept="image/*" className="hidden" />
-            </div>
-
-            <div className="space-y-4">
-              <label className="text-[10px] font-black uppercase text-zinc-400 ml-2">Nombre del producto</label>
-              <input 
-                value={editando.nombre || ""} 
-                onChange={e => setEditando({...editando, nombre: e.target.value})} 
-                className="w-full p-4 bg-zinc-50 rounded-2xl outline-none text-black font-bold border-none focus:ring-2 ring-black" 
-                required 
-              />
-              
-              <label className="text-[10px] font-black uppercase text-zinc-400 ml-2">Descripción</label>
-              <textarea 
-                value={editando.descripcion || ""} 
-                onChange={e => setEditando({...editando, descripcion: e.target.value})} 
-                className="w-full p-4 bg-zinc-50 rounded-2xl outline-none h-28 text-black border-none focus:ring-2 ring-black" 
-                required 
-              />
-              
-              <div className="grid grid-cols-2 gap-4">
-                <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-black uppercase text-zinc-400 ml-2">Precio ($)</label>
-                  <input 
-                    type="number" 
-                    step="0.01" 
-                    value={editando.precio ?? 0} 
-                    onChange={e => setEditando({...editando, precio: parseFloat(e.target.value) || 0})} 
-                    className="w-full p-4 bg-zinc-50 rounded-2xl outline-none text-black font-bold border-none focus:ring-2 ring-black" 
-                    required 
-                  />
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setEditando(null)} />
+          <form onSubmit={handleUpdate} className="relative bg-white w-full max-w-lg p-8 rounded-[3rem] shadow-2xl space-y-5 overflow-y-auto max-h-[85vh] border border-zinc-200 no-scrollbar">
+            <h2 className="text-2xl font-black uppercase italic tracking-tighter">Editar Datos</h2>
+            <div className="space-y-3">
+              <label className="text-[10px] font-black uppercase text-zinc-400">Galería</label>
+              <div className="flex gap-3 overflow-x-auto pb-2 items-center no-scrollbar">
+                <div onClick={() => fileEditInputRef.current?.click()} className="w-20 h-20 shrink-0 bg-zinc-100 rounded-2xl border-2 border-dashed border-zinc-300 flex items-center justify-center cursor-pointer">
+                  <span className="text-xl">+</span>
+                  <input type="file" ref={fileEditInputRef} onChange={(e) => handleFileChange(e, true)} className="hidden" />
                 </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-black uppercase text-zinc-400 ml-2">Stock</label>
-                  <input 
-                    type="number" 
-                    value={editando.stock ?? 0} 
-                    onChange={e => setEditando({...editando, stock: parseInt(e.target.value) || 0})} 
-                    className="w-full p-4 bg-zinc-50 rounded-2xl outline-none text-black font-bold border-none focus:ring-2 ring-black" 
-                    required 
-                  />
-                </div>
+                {getUrlsArray(editando.imagen_url).map((url, index) => (
+                  <div key={index} draggable onDragStart={() => onDragStart(index)} onDragOver={(e) => onDragOver(e, index)} onDragEnd={() => setDraggedIndex(null)}
+                    className={`relative w-20 h-20 shrink-0 rounded-2xl overflow-hidden border-2 cursor-move transition-all ${draggedIndex === index ? 'opacity-30 scale-95' : 'border-zinc-100'}`}>
+                    <img src={url} className="w-full h-full object-cover pointer-events-none" alt="" />
+                    <button type="button" onClick={() => eliminarFotoDeEdicion(index)} className="absolute top-1 right-1 bg-red-500 text-white w-5 h-5 rounded-full text-[10px] flex items-center justify-center">✕</button>
+                  </div>
+                ))}
               </div>
             </div>
 
-            <div className="flex gap-4 pt-6">
-              <button type="button" onClick={() => setEditando(null)} className="flex-1 py-4 bg-zinc-100 rounded-2xl font-black uppercase text-[10px] text-black hover:bg-zinc-200 transition-all">Cancelar</button>
-              <button disabled={loading} className="flex-2 py-4 bg-black text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg hover:bg-zinc-800 transition-all">
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <input value={editando.nombre} onChange={e => setEditando({...editando, nombre: e.target.value})} className="p-4 bg-zinc-100 rounded-2xl font-bold border-none outline-none" placeholder="Nombre" />
+                <select 
+                  value={editando.categoria} 
+                  onChange={e => setEditando({...editando, categoria: e.target.value})} 
+                  className="p-4 bg-zinc-100 rounded-2xl font-bold border-none outline-none appearance-none cursor-pointer"
+                >
+                  {CATEGORIAS.map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </div>
+              <textarea value={editando.descripcion || ""} onChange={e => setEditando({...editando, descripcion: e.target.value})} rows={3} className="w-full p-4 bg-zinc-100 rounded-2xl font-bold border-none outline-none resize-none" placeholder="Descripción" />
+              <div className="grid grid-cols-2 gap-4">
+                <input type="number" step="0.01" value={editando.precio} onChange={e => setEditando({...editando, precio: parseFloat(e.target.value)})} className="w-full p-4 bg-zinc-100 rounded-2xl font-bold border-none outline-none" />
+                <input type="number" value={editando.stock} onChange={e => setEditando({...editando, stock: parseInt(e.target.value)})} className="w-full p-4 bg-zinc-100 rounded-2xl font-bold border-none outline-none" />
+              </div>
+            </div>
+
+            <div className="flex gap-4 pt-4 sticky bottom-0 bg-white">
+              <button type="button" onClick={() => setEditando(null)} className="flex-1 py-4 bg-zinc-100 rounded-2xl font-black uppercase text-[10px]">Cancelar</button>
+              <button disabled={loading} className="flex-2 py-4 bg-black text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg active:scale-95 transition-all">
                 {loading ? 'GUARDANDO...' : 'GUARDAR CAMBIOS'}
               </button>
             </div>

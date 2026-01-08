@@ -14,9 +14,9 @@ interface Producto {
   nombre: string;
   precio: number;
   categoria: string;
-  imagen_url: string;
+  imagen_url: string[]; // CAMBIADO A ARRAY
   stock: number;
-  descripcion: string; // AGREGAMOS EL CAMPO DESCRIPCIÓN
+  descripcion: string;
 }
 
 interface ItemCarrito extends Producto {
@@ -29,6 +29,7 @@ export default function ProductoDetalle() {
   
   const [producto, setProducto] = useState<Producto | null>(null);
   const [cargando, setCargando] = useState(true);
+  const [fotoActual, setFotoActual] = useState(0); // ESTADO PARA EL CARRUSEL
 
   useEffect(() => {
     async function getProducto() {
@@ -47,10 +48,9 @@ export default function ProductoDetalle() {
     getProducto();
   }, [id]);
 
-const manejarAñadirAlCarrito = () => {
+  const manejarAñadirAlCarrito = () => {
     if (!producto) return;
     
-    // 1. Obtener lo que ya hay en el storage
     const storageActual = localStorage.getItem('carrito');
     let carritoActual: ItemCarrito[] = [];
     
@@ -58,7 +58,6 @@ const manejarAñadirAlCarrito = () => {
       carritoActual = JSON.parse(storageActual);
     }
     
-    // 2. Revisar si el producto ya existe para sumar cantidad o añadir nuevo
     const indice = carritoActual.findIndex(item => item.id === producto.id);
     
     if (indice !== -1) {
@@ -72,13 +71,8 @@ const manejarAñadirAlCarrito = () => {
       carritoActual.push({ ...producto, cantidad: 1 });
     }
     
-    // 3. GUARDAR TODO DE NUEVO EN EL STORAGE
     localStorage.setItem('carrito', JSON.stringify(carritoActual));
-    
-    // 4. Marcar que se debe abrir el carrito al volver
     localStorage.setItem('abrirCarrito', 'true');
-    
-    // 5. Ir a la tienda
     router.push('/'); 
   };
 
@@ -97,6 +91,9 @@ const manejarAñadirAlCarrito = () => {
     </div>
   );
 
+  // Aseguramos que imagen_url sea siempre un array para evitar errores
+  const imagenes = Array.isArray(producto.imagen_url) ? producto.imagen_url : [producto.imagen_url];
+
   return (
     <div className="min-h-screen bg-white text-black font-sans">
       <button 
@@ -107,12 +104,56 @@ const manejarAñadirAlCarrito = () => {
       </button>
 
       <div className="max-w-7xl mx-auto px-4 py-20 flex flex-col md:flex-row gap-12 lg:gap-24">
+        {/* SECCIÓN IZQUIERDA: CARRUSEL */}
         <div className="w-full md:w-1/2">
-          <div className="sticky top-24 aspect-3/4 rounded-[3rem] overflow-hidden bg-zinc-50 border border-zinc-100 shadow-2xl">
-            <img src={producto.imagen_url} alt={producto.nombre} className="w-full h-full object-cover" />
+          <div className="sticky top-24">
+            {/* IMAGEN PRINCIPAL */}
+            <div className="relative aspect-square rounded-[3rem] overflow-hidden bg-zinc-50 border border-zinc-100 shadow-2xl mb-6">
+              <img 
+                src={imagenes[fotoActual]} 
+                alt={producto.nombre} 
+                className="w-full h-full object-cover transition-all duration-500" 
+              />
+              
+              {/* Botones de navegación (solo si hay más de 1 imagen) */}
+              {imagenes.length > 1 && (
+                <div className="absolute inset-0 flex items-center justify-between px-4 opacity-0 hover:opacity-100 transition-opacity">
+                  <button 
+                    onClick={() => setFotoActual(prev => (prev > 0 ? prev - 1 : imagenes.length - 1))}
+                    className="bg-white/80 backdrop-blur-md p-3 rounded-full shadow-lg hover:bg-white"
+                  >
+                    ←
+                  </button>
+                  <button 
+                    onClick={() => setFotoActual(prev => (prev < imagenes.length - 1 ? prev + 1 : 0))}
+                    className="bg-white/80 backdrop-blur-md p-3 rounded-full shadow-lg hover:bg-white"
+                  >
+                    →
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* MINIATURAS (Thumbnails) */}
+            {imagenes.length > 1 && (
+              <div className="flex gap-4 overflow-x-auto pb-2 no-scrollbar">
+                {imagenes.map((img, index) => (
+                  <button
+                    key={index}
+                    onClick={() => setFotoActual(index)}
+                    className={`relative w-24 h-24 shrink-0 rounded-2xl overflow-hidden border-2 transition-all ${
+                      fotoActual === index ? 'border-black scale-95' : 'border-transparent opacity-50'
+                    }`}
+                  >
+                    <img src={img} className="w-full h-full object-cover" alt="" />
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
+        {/* SECCIÓN DERECHA: INFO */}
         <div className="w-full md:w-1/2 flex flex-col justify-center py-10">
           <span className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-400 mb-4 inline-block">
             {producto.categoria}
@@ -126,7 +167,6 @@ const manejarAñadirAlCarrito = () => {
           
           <div className="space-y-6 mb-12 border-l-2 border-black pl-6">
             <p className="text-zinc-500 leading-relaxed max-w-md italic font-medium whitespace-pre-line">
-              {/* AQUÍ CARGAMOS LA DESCRIPCIÓN DE SUPABASE */}
               {producto.descripcion || "Sin descripción disponible."}
             </p>
           </div>
