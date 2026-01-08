@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { enviarPedidoWhatsApp } from '@/lib/whatsapp'; 
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -13,13 +14,12 @@ const supabase = createClient(
 const categoriasMenu = ['Todos', 'Zapatillas', 'Remeras', 'Pantalones'];
 const ORDEN_PRIORIDAD = ['Zapatillas', 'Remeras', 'Pantalones'];
 
-// --- CAMBIO 1: La interfaz ahora espera un arreglo de strings ---
 interface Producto {
   id: string;
   nombre: string;
   precio: number;
   categoria: string;
-  imagen_url: string[]; // Cambiado de string a string[]
+  imagen_url: string[]; 
   stock: number;
 }
 
@@ -34,30 +34,49 @@ export default function TiendaPage() {
   const [categoriaActual, setCategoriaActual] = useState('Todos');
   const [cargando, setCargando] = useState(true);
   const [carritoAbierto, setCarritoAbierto] = useState(false);
+  
+  const pathname = usePathname();
+  const cargadoInicial = useRef(false);
 
-  useEffect(() => {
-    const sincronizarEstado = () => {
-      const guardado = localStorage.getItem('carrito');
-      if (guardado) {
-        try {
-          const carritoParseado = JSON.parse(guardado);
+  const sincronizarTodo = useCallback(() => {
+    const guardado = localStorage.getItem('carrito');
+    if (guardado) {
+      try {
+        const carritoParseado = JSON.parse(guardado);
+        if (carritoParseado.length >= 0) {
           setCarrito(carritoParseado);
-        } catch (e) {
-          console.error("Error al parsear el carrito:", e);
         }
+      } catch (e) {
+        console.error("Error al parsear el carrito:", e);
       }
-      if (localStorage.getItem('abrirCarrito') === 'true') {
-        setCarritoAbierto(true);
-        localStorage.removeItem('abrirCarrito'); 
-      }
-    };
-    sincronizarEstado();
-    window.addEventListener('storage', sincronizarEstado);
-    return () => window.removeEventListener('storage', sincronizarEstado);
+    }
+    if (localStorage.getItem('abrirCarrito') === 'true') {
+      setCarritoAbierto(true);
+      localStorage.removeItem('abrirCarrito');
+    }
+    setTimeout(() => {
+      cargadoInicial.current = true;
+    }, 300);
   }, []);
 
   useEffect(() => {
-    if (carrito.length > 0) {
+    sincronizarTodo();
+    window.addEventListener('storage', sincronizarTodo);
+    window.addEventListener('focus', sincronizarTodo);
+    return () => {
+      window.removeEventListener('storage', sincronizarTodo);
+      window.removeEventListener('focus', sincronizarTodo);
+    };
+  }, [sincronizarTodo]);
+
+  useEffect(() => {
+    if (pathname === '/') {
+      sincronizarTodo();
+    }
+  }, [pathname, sincronizarTodo]);
+
+  useEffect(() => {
+    if (cargadoInicial.current) {
       localStorage.setItem('carrito', JSON.stringify(carrito));
     }
   }, [carrito]);
@@ -118,27 +137,23 @@ export default function TiendaPage() {
     let base = productos;
     if (categoriaActual !== 'Todos') base = base.filter(p => p.categoria === categoriaActual);
     if (busqueda.trim() !== '') base = base.filter(p => p.nombre.toLowerCase().includes(busqueda.toLowerCase()));
-
     const grupos: { [key: string]: Producto[] } = {};
     base.forEach(prod => {
       if (!grupos[prod.categoria]) grupos[prod.categoria] = [];
       grupos[prod.categoria].push(prod);
     });
-
     const gruposOrdenados: { [key: string]: Producto[] } = {};
     ORDEN_PRIORIDAD.forEach(cat => {
       if (grupos[cat]) gruposOrdenados[cat] = grupos[cat];
     });
-
     Object.keys(grupos).forEach(cat => {
       if (!gruposOrdenados[cat]) gruposOrdenados[cat] = grupos[cat];
     });
-
     return gruposOrdenados;
   }, [productos, categoriaActual, busqueda]);
 
   return (
-    <div className="min-h-screen bg-white font-sans text-black overflow-x-hidden">
+    <div className="min-h-screen bg-white font-sans text-black overflow-x-hidden flex flex-col">
       {/* Botón Flotante Carrito */}
       <button 
         onClick={() => setCarritoAbierto(true)}
@@ -159,19 +174,13 @@ export default function TiendaPage() {
               <h2 className="text-2xl font-black uppercase tracking-tighter italic">Tu Carrito</h2>
               <button onClick={() => setCarritoAbierto(false)} className="text-sm font-bold uppercase text-zinc-300">Cerrar</button>
             </div>
-
             <div className="flex-1 overflow-y-auto space-y-6 no-scrollbar">
               {carrito.length === 0 ? (
                 <p className="text-center text-zinc-300 font-bold uppercase py-20 italic">El carrito está vacío</p>
               ) : (
                 carrito.map(item => (
                   <div key={item.id} className="flex gap-4 items-center bg-zinc-50 p-4 rounded-3xl">
-                    {/* --- CAMBIO 2: Mostrar la primera imagen en el carrito --- */}
-                    <img 
-                      src={Array.isArray(item.imagen_url) ? item.imagen_url[0] : item.imagen_url} 
-                      className="w-16 h-16 rounded-2xl object-cover" 
-                      alt="" 
-                    />
+                    <img src={Array.isArray(item.imagen_url) ? item.imagen_url[0] : item.imagen_url} className="w-16 h-16 rounded-2xl object-cover" alt="" />
                     <div className="flex-1">
                       <h4 className="text-[10px] font-black uppercase truncate">{item.nombre}</h4>
                       <p className="text-xs font-bold">$ {item.precio * item.cantidad}</p>
@@ -179,18 +188,12 @@ export default function TiendaPage() {
                     <div className="flex items-center gap-3 bg-white px-3 py-1 rounded-full border">
                       <button onClick={() => modificarCantidad(item.id, -1)} className="font-bold text-lg">-</button>
                       <span className="text-xs font-black">{item.cantidad}</span>
-                      <button 
-                        onClick={() => modificarCantidad(item.id, 1)} 
-                        className={`font-bold text-lg ${item.cantidad >= item.stock ? 'text-zinc-300' : 'text-black'}`}
-                      >
-                        +
-                      </button>
+                      <button onClick={() => modificarCantidad(item.id, 1)} className={`font-bold text-lg ${item.cantidad >= item.stock ? 'text-zinc-300' : 'text-black'}`}>+</button>
                     </div>
                   </div>
                 ))
               )}
             </div>
-
             <div className="mt-8 pt-8 border-t">
               <div className="flex justify-between items-end mb-6">
                 <span className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Total</span>
@@ -208,7 +211,6 @@ export default function TiendaPage() {
         </div>
       )}
 
-      {/* --- HEADER --- */}
       <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-md border-b">
         <div className="max-w-7xl mx-auto px-4 py-6">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
@@ -239,8 +241,7 @@ export default function TiendaPage() {
         </div>
       </header>
 
-      {/* --- MAIN GRID --- */}
-      <main className="max-w-7xl mx-auto px-4 py-12">
+      <main className="max-w-7xl mx-auto px-4 py-12 flex-grow">
         {cargando ? (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
             {[1, 2, 3, 4, 5, 6, 7, 8].map(n => (
@@ -254,15 +255,8 @@ export default function TiendaPage() {
         ) : Object.keys(secciones).length === 0 ? (
           <div className="flex flex-col items-center justify-center py-32 text-center">
             <span className="text-6xl mb-6 opacity-20">🔍</span>
-            <h2 className="text-2xl font-black uppercase italic tracking-tighter mb-2">
-              No hay resultados
-            </h2>
-            <button 
-              onClick={() => { setBusqueda(''); setCategoriaActual('Todos'); }}
-              className="px-8 py-3 bg-black text-white text-[10px] font-black uppercase rounded-2xl"
-            >
-              Ver todo
-            </button>
+            <h2 className="text-2xl font-black uppercase italic tracking-tighter mb-2">No hay resultados</h2>
+            <button onClick={() => { setBusqueda(''); setCategoriaActual('Todos'); }} className="px-8 py-3 bg-black text-white text-[10px] font-black uppercase rounded-2xl">Ver todo</button>
           </div>
         ) : (
           <div className="space-y-20">
@@ -277,13 +271,8 @@ export default function TiendaPage() {
                     <div key={prod.id} className="group">
                       <Link href={`/producto/${prod.id}`}>
                         <div className="relative aspect-square mb-5 overflow-hidden rounded-4xl bg-zinc-50 border border-zinc-100 cursor-pointer">
-                          {/* --- CAMBIO 3: Mostrar la primera imagen de la lista en la grilla --- */}
                           {prod.imagen_url && prod.imagen_url.length > 0 && (
-                            <img 
-                              src={prod.imagen_url[0]} 
-                              className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" 
-                              alt={prod.nombre} 
-                            />
+                            <img src={prod.imagen_url[0]} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" alt={prod.nombre} />
                           )}
                           {prod.stock <= 0 && (
                             <div className="absolute inset-0 bg-white/60 flex items-center justify-center">
@@ -292,20 +281,13 @@ export default function TiendaPage() {
                           )}
                         </div>
                       </Link>
-
                       <div className="px-1">
                         <Link href={`/producto/${prod.id}`}>
-                          <h3 className="text-[11px] font-black uppercase leading-tight mb-2 h-8 line-clamp-2 cursor-pointer hover:underline">
-                            {prod.nombre}
-                          </h3>
+                          <h3 className="text-[11px] font-black uppercase leading-tight mb-2 h-8 line-clamp-2 cursor-pointer hover:underline">{prod.nombre}</h3>
                         </Link>
                         <div className="flex items-center justify-between mt-2">
                           <span className="text-lg font-black tracking-tighter">${prod.precio}</span>
-                          <button 
-                            disabled={prod.stock <= 0}
-                            onClick={() => agregarAlCarrito(prod)}
-                            className="text-[9px] font-black uppercase px-4 py-2.5 rounded-xl bg-black text-white hover:bg-zinc-800 transition-all flex items-center gap-1 active:scale-95"
-                          >
+                          <button disabled={prod.stock <= 0} onClick={() => agregarAlCarrito(prod)} className="text-[9px] font-black uppercase px-4 py-2.5 rounded-xl bg-black text-white hover:bg-zinc-800 transition-all flex items-center gap-1 active:scale-95">
                             <span>+</span> Añadir
                           </button>
                         </div>
@@ -318,6 +300,37 @@ export default function TiendaPage() {
           </div>
         )}
       </main>
+
+      {/* --- FOOTER SECCIÓN --- */}
+      <footer className="bg-black text-white py-16 mt-20">
+        <div className="max-w-7xl mx-auto px-4">
+          <div className="flex flex-col md:flex-row justify-between items-center gap-8 border-b border-zinc-800 pb-12 mb-12">
+            <div>
+              <h2 className="text-3xl font-black uppercase tracking-tighter italic mb-2">TuMarca Store</h2>
+              <p className="text-zinc-500 text-[10px] font-bold uppercase tracking-[0.2em]">The Future of Streetwear</p>
+            </div>
+            
+            <div className="flex flex-col items-center md:items-end">
+              <span className="text-zinc-500 text-[10px] font-black uppercase tracking-widest mb-2">Contacto & Soporte</span>
+              <a 
+                href={`mailto:martinezmaximilianor@gmail.com`} 
+                className="text-lg font-bold hover:text-zinc-400 transition-colors"
+              >
+                martinezmaximilianor@gmail.com
+              </a>
+            </div>
+          </div>
+
+          <div className="flex flex-col md:flex-row justify-between items-center gap-6 text-[10px] font-black uppercase tracking-[0.3em] text-zinc-600 text-center">
+            <p>© {new Date().getFullYear()} Todos los derechos reservados.</p>
+            <p>Diseñado & Desarrollado por <span className="text-white">Maximiliano Rene Martinez</span></p>
+            {/* <div className="flex gap-6">
+              <span className="hover:text-white cursor-pointer transition-colors">Instagram</span>
+              <span className="hover:text-white cursor-pointer transition-colors">Twitter</span>
+            </div> */}
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }

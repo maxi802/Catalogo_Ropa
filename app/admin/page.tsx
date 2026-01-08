@@ -68,14 +68,46 @@ export default function AdminPage() {
     if (data) setProductos(data as ProductoAdmin[]);
   };
 
-  const eliminarProducto = async (id: string, nombre: string) => {
+const eliminarProducto = async (id: string, nombre: string) => {
     if (!confirm(`¿Estás seguro de eliminar "${nombre}"?`)) return;
+    
     try {
+      // 1. Buscamos el producto para obtener sus URLs de imagen
+      const productoAEliminar = productos.find(p => p.id === id);
+      
+      if (productoAEliminar) {
+        const urls = getUrlsArray(productoAEliminar.imagen_url);
+        
+        // 2. Filtramos solo las imágenes que pertenecen a NUESTRO storage
+        // (Evitamos intentar borrar URLs externas de Google, Pinterest, etc.)
+        const fotosStorage = urls
+          .filter(url => url.includes('fotos-productos'))
+          .map(url => {
+            // Extraemos el nombre del archivo de la URL
+            const partes = url.split('/');
+            return partes[partes.length - 1];
+          });
+
+        if (fotosStorage.length > 0) {
+          // 3. Borramos los archivos físicos del Storage
+          const { error: storageError } = await supabase.storage
+            .from('fotos-productos')
+            .remove(fotosStorage);
+          
+          if (storageError) console.error("Error borrando archivos:", storageError);
+        }
+      }
+
+      // 4. Eliminamos el registro de la base de datos
       const { error } = await supabase.from('productos').delete().eq('id', id);
       if (error) throw error;
+
       setProductos(productos.filter(p => p.id !== id));
+      alert("Producto y sus fotos eliminados con éxito");
+      
     } catch (err) {
-      alert("Error al eliminar");
+      const error = err as Error;
+      alert(`Error al eliminar: ${error.message}`);
     }
   };
 

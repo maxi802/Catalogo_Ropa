@@ -14,7 +14,7 @@ interface Producto {
   nombre: string;
   precio: number;
   categoria: string;
-  imagen_url: string[]; // CAMBIADO A ARRAY
+  imagen_url: string[];
   stock: number;
   descripcion: string;
 }
@@ -29,7 +29,7 @@ export default function ProductoDetalle() {
   
   const [producto, setProducto] = useState<Producto | null>(null);
   const [cargando, setCargando] = useState(true);
-  const [fotoActual, setFotoActual] = useState(0); // ESTADO PARA EL CARRUSEL
+  const [fotoActual, setFotoActual] = useState(0);
 
   useEffect(() => {
     async function getProducto() {
@@ -51,28 +51,40 @@ export default function ProductoDetalle() {
   const manejarAñadirAlCarrito = () => {
     if (!producto) return;
     
+    // 1. Obtener lo que hay actualmente en localStorage de forma segura
     const storageActual = localStorage.getItem('carrito');
     let carritoActual: ItemCarrito[] = [];
     
-    if (storageActual) {
-      carritoActual = JSON.parse(storageActual);
+    try {
+      if (storageActual) {
+        carritoActual = JSON.parse(storageActual);
+      }
+    } catch (e) {
+      console.error("Error al leer el carrito del storage:", e);
+      carritoActual = [];
     }
     
+    // 2. Buscar si el producto ya está en el carrito
     const indice = carritoActual.findIndex(item => item.id === producto.id);
     
     if (indice !== -1) {
       if (carritoActual[indice].cantidad < producto.stock) {
         carritoActual[indice].cantidad += 1;
       } else {
-        alert("Sin stock suficiente");
+        alert(`Lo sentimos, solo hay ${producto.stock} unidades disponibles.`);
         return;
       }
     } else {
+      // Agregamos el nuevo producto
       carritoActual.push({ ...producto, cantidad: 1 });
     }
     
+    // 3. GUARDADO CRÍTICO: Guardar antes de navegar
+    // Esto asegura que la Home encuentre los datos actualizados inmediatamente
     localStorage.setItem('carrito', JSON.stringify(carritoActual));
     localStorage.setItem('abrirCarrito', 'true');
+    
+    // 4. Navegar a la Home
     router.push('/'); 
   };
 
@@ -91,7 +103,6 @@ export default function ProductoDetalle() {
     </div>
   );
 
-  // Aseguramos que imagen_url sea siempre un array para evitar errores
   const imagenes = Array.isArray(producto.imagen_url) ? producto.imagen_url : [producto.imagen_url];
 
   return (
@@ -107,7 +118,6 @@ export default function ProductoDetalle() {
         {/* SECCIÓN IZQUIERDA: CARRUSEL */}
         <div className="w-full md:w-1/2">
           <div className="sticky top-24">
-            {/* IMAGEN PRINCIPAL */}
             <div className="relative aspect-square rounded-[3rem] overflow-hidden bg-zinc-50 border border-zinc-100 shadow-2xl mb-6">
               <img 
                 src={imagenes[fotoActual]} 
@@ -115,7 +125,6 @@ export default function ProductoDetalle() {
                 className="w-full h-full object-cover transition-all duration-500" 
               />
               
-              {/* Botones de navegación (solo si hay más de 1 imagen) */}
               {imagenes.length > 1 && (
                 <div className="absolute inset-0 flex items-center justify-between px-4 opacity-0 hover:opacity-100 transition-opacity">
                   <button 
@@ -134,7 +143,6 @@ export default function ProductoDetalle() {
               )}
             </div>
 
-            {/* MINIATURAS (Thumbnails) */}
             {imagenes.length > 1 && (
               <div className="flex gap-4 overflow-x-auto pb-2 no-scrollbar">
                 {imagenes.map((img, index) => (
@@ -182,7 +190,7 @@ export default function ProductoDetalle() {
             <button 
               onClick={manejarAñadirAlCarrito}
               disabled={producto.stock <= 0}
-              className="w-full bg-black text-white py-6 rounded-4xl font-black uppercase tracking-widest hover:bg-zinc-800 transition-all shadow-2xl disabled:bg-zinc-100"
+              className="w-full bg-black text-white py-6 rounded-4xl font-black uppercase tracking-widest hover:bg-zinc-800 transition-all shadow-2xl disabled:bg-zinc-100 disabled:text-zinc-400"
             >
               {producto.stock > 0 ? 'Añadir al carrito' : 'Agotado'}
             </button>
