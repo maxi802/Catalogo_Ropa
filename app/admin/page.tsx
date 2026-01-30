@@ -10,7 +10,7 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-const CATEGORIAS = ["Remeras", "Pantalones", "Zapatillas", "Accesorios", "Ofertas"];
+const CATEGORIAS = ["Zapatillas","Camisetas","Pantalones", "Conjuntos", "Medias", "Gorras","Pelotas"];
 
 interface ProductoAdmin {
   id: string;
@@ -68,46 +68,32 @@ export default function AdminPage() {
     if (data) setProductos(data as ProductoAdmin[]);
   };
 
-const eliminarProducto = async (id: string, nombre: string) => {
+  const eliminarProducto = async (id: string, nombre: string) => {
     if (!confirm(`¿Estás seguro de eliminar "${nombre}"?`)) return;
-    
     try {
-      // 1. Buscamos el producto para obtener sus URLs de imagen
       const productoAEliminar = productos.find(p => p.id === id);
-      
       if (productoAEliminar) {
         const urls = getUrlsArray(productoAEliminar.imagen_url);
-        
-        // 2. Filtramos solo las imágenes que pertenecen a NUESTRO storage
-        // (Evitamos intentar borrar URLs externas de Google, Pinterest, etc.)
         const fotosStorage = urls
           .filter(url => url.includes('fotos-productos'))
           .map(url => {
-            // Extraemos el nombre del archivo de la URL
             const partes = url.split('/');
             return partes[partes.length - 1];
           });
 
         if (fotosStorage.length > 0) {
-          // 3. Borramos los archivos físicos del Storage
           const { error: storageError } = await supabase.storage
             .from('fotos-productos')
             .remove(fotosStorage);
-          
           if (storageError) console.error("Error borrando archivos:", storageError);
         }
       }
-
-      // 4. Eliminamos el registro de la base de datos
       const { error } = await supabase.from('productos').delete().eq('id', id);
       if (error) throw error;
-
       setProductos(productos.filter(p => p.id !== id));
       alert("Producto y sus fotos eliminados con éxito");
-      
     } catch (err) {
-      const error = err as Error;
-      alert(`Error al eliminar: ${error.message}`);
+      alert(`Error al eliminar: ${(err as Error).message}`);
     }
   };
 
@@ -144,28 +130,21 @@ const eliminarProducto = async (id: string, nombre: string) => {
     e.preventDefault();
     if (!editando) return;
     setLoading(true);
-    
     try {
       let urlsFinales = [...getUrlsArray(editando.imagen_url)];
-
       if (archivoParaSubir) {
         const ext = archivoParaSubir.file.name.split('.').pop();
         const fileName = `${Date.now()}.${ext}`;
         const { error: uploadError } = await supabase.storage
           .from('fotos-productos')
           .upload(fileName, archivoParaSubir.file);
-        
         if (uploadError) throw uploadError;
-
         const { data: { publicUrl } } = supabase.storage
           .from('fotos-productos')
           .getPublicUrl(fileName);
-          
         urlsFinales = urlsFinales.map(u => u === archivoParaSubir.tempUrl ? publicUrl : u);
       }
-
       const urlsParaEnviar = urlsFinales.filter(u => u && !u.startsWith('blob:'));
-
       const { error } = await supabase.from('productos').update({
         nombre: editando.nombre,
         precio: Number(editando.precio) || 0,
@@ -174,9 +153,7 @@ const eliminarProducto = async (id: string, nombre: string) => {
         categoria: editando.categoria || "General",
         imagen_url: urlsParaEnviar 
       }).eq('id', editando.id);
-
       if (error) throw error;
-      
       setEditando(null);
       setArchivoParaSubir(null);
       fetchProductos();
@@ -197,22 +174,15 @@ const eliminarProducto = async (id: string, nombre: string) => {
 
     try {
       const urlsSubidas: string[] = [];
-
-      // Subida de archivos
       for (const item of fotosLocales) {
         const ext = item.file.name.split('.').pop();
         const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${ext}`;
         const { error: upError } = await supabase.storage.from('fotos-productos').upload(fileName, item.file);
-        
         if (upError) throw upError;
-
         const { data: { publicUrl } } = supabase.storage.from('fotos-productos').getPublicUrl(fileName);
         urlsSubidas.push(publicUrl);
       }
-
       const urlsFinales = [...urlsSubidas, ...urlsExternas];
-
-      // Inserción en DB
       const { error: insertError } = await supabase.from('productos').insert([{
         nombre: formData.get('nombre') as string,
         precio: parseFloat(formData.get('precio') as string) || 0,
@@ -221,35 +191,40 @@ const eliminarProducto = async (id: string, nombre: string) => {
         descripcion: formData.get('descripcion') as string || "",
         imagen_url: urlsFinales 
       }]);
-
       if (insertError) throw insertError;
-
-      // ÉXITO: Limpiamos todo
       setMensaje('✅ ¡Publicado con éxito!');
       setFotosLocales([]);
       setUrlsExternas([]);
       form.reset();
       fetchProductos();
-
-      } catch (err) {
-        const error = err as Error; // Convertimos el error a un tipo conocido
-        console.error("Error completo:", error);
-        setMensaje(`❌ Error: ${error.message || 'No se pudo publicar'}`);
-      } finally {
+    } catch (err) {
+      setMensaje(`❌ Error: ${(err as Error).message || 'No se pudo publicar'}`);
+    } finally {
       setLoading(false);
     }
   };
 
   const onDragStart = (index: number) => setDraggedIndex(index);
-  const onDragOver = (e: React.DragEvent, index: number) => {
+
+  const onDragOver = (e: React.DragEvent, index: number, isEdit: boolean) => {
     e.preventDefault();
-    if (draggedIndex === null || draggedIndex === index || !editando) return;
-    const nuevasUrls = [...getUrlsArray(editando.imagen_url)];
-    const itemArrastrado = nuevasUrls[draggedIndex];
-    nuevasUrls.splice(draggedIndex, 1);
-    nuevasUrls.splice(index, 0, itemArrastrado);
-    setDraggedIndex(index);
-    setEditando({ ...editando, imagen_url: nuevasUrls });
+    if (draggedIndex === null || draggedIndex === index) return;
+
+    if (isEdit && editando) {
+      const nuevasUrls = [...getUrlsArray(editando.imagen_url)];
+      const itemArrastrado = nuevasUrls[draggedIndex];
+      nuevasUrls.splice(draggedIndex, 1);
+      nuevasUrls.splice(index, 0, itemArrastrado);
+      setDraggedIndex(index);
+      setEditando({ ...editando, imagen_url: nuevasUrls });
+    } else if (!isEdit) {
+      const nuevasFotos = [...fotosLocales];
+      const itemArrastrado = nuevasFotos[draggedIndex];
+      nuevasFotos.splice(draggedIndex, 1);
+      nuevasFotos.splice(index, 0, itemArrastrado);
+      setDraggedIndex(index);
+      setFotosLocales(nuevasFotos);
+    }
   };
 
   const eliminarFotoDeEdicion = (indexAEliminar: number) => {
@@ -279,15 +254,22 @@ const eliminarProducto = async (id: string, nombre: string) => {
           <form onSubmit={handleSubmit} className="space-y-6">
             
             <div className="space-y-3">
-              <label className="text-[10px] font-black uppercase text-zinc-400 ml-2 italic">Galería de fotos</label>
+              <label className="text-[10px] font-black uppercase text-zinc-400 ml-2 italic">Galería de fotos (Arrastra para reordenar)</label>
               <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar">
                 <div onClick={() => fileInputRef.current?.click()} className="w-24 h-24 shrink-0 bg-zinc-50 rounded-3xl border-2 border-dashed border-zinc-200 flex flex-col items-center justify-center cursor-pointer hover:bg-zinc-100 transition-all">
                   <span className="text-xl">+</span>
                   <input type="file" multiple ref={fileInputRef} onChange={(e) => handleFileChange(e, false)} className="hidden" accept="image/*" />
                 </div>
                 {fotosLocales.map((foto, i) => (
-                  <div key={`local-${i}`} className="relative w-24 h-24 shrink-0 rounded-3xl overflow-hidden border">
-                    <img src={foto.preview} className="w-full h-full object-cover" alt="" />
+                  <div 
+                    key={`local-${i}`} 
+                    draggable 
+                    onDragStart={() => onDragStart(i)}
+                    onDragOver={(e) => onDragOver(e, i, false)}
+                    onDragEnd={() => setDraggedIndex(null)}
+                    className={`relative w-24 h-24 shrink-0 rounded-3xl overflow-hidden border cursor-move transition-all ${draggedIndex === i ? 'opacity-30 scale-95' : ''}`}
+                  >
+                    <img src={foto.preview} className="w-full h-full object-cover pointer-events-none" alt="" />
                     <button type="button" onClick={() => eliminarFotoLocal(i)} className="absolute top-1 right-1 bg-red-500 text-white w-5 h-5 rounded-full text-[10px]">✕</button>
                   </div>
                 ))}
@@ -301,34 +283,50 @@ const eliminarProducto = async (id: string, nombre: string) => {
             </div>
 
             <div className="space-y-4">
-              <input 
-                placeholder="Pegar URL de imagen externa y Enter..."
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    const val = e.currentTarget.value.trim();
-                    if (val) { setUrlsExternas([...urlsExternas, val]); e.currentTarget.value = ""; }
-                  }
-                }}
-                className="w-full p-4 bg-zinc-50 rounded-2xl border border-zinc-100 font-bold text-xs outline-none focus:border-black transition-all"
-              />
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <input name="nombre" placeholder="Nombre" required className="p-4 bg-zinc-50 rounded-2xl font-bold border border-zinc-100 outline-none focus:border-black transition-all" />
-                
-                <select name="categoria" required defaultValue="" className="p-4 bg-zinc-50 rounded-2xl font-bold border border-zinc-100 outline-none focus:border-black transition-all appearance-none cursor-pointer">
-                  <option value="" disabled>Elegir Categoría</option>
-                  {CATEGORIAS.map(cat => (
-                    <option key={cat} value={cat}>{cat}</option>
-                  ))}
-                </select>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase text-zinc-400 ml-2 italic">URL Imagen Externa</label>
+                <input 
+                  placeholder="Pegar URL de imagen externa y Enter..."
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      const val = e.currentTarget.value.trim();
+                      if (val) { setUrlsExternas([...urlsExternas, val]); e.currentTarget.value = ""; }
+                    }
+                  }}
+                  className="w-full p-4 bg-zinc-50 rounded-2xl border border-zinc-100 font-bold text-xs outline-none focus:border-black transition-all"
+                />
               </div>
-              
-              <textarea name="descripcion" placeholder="Descripción del producto..." rows={3} className="w-full p-4 bg-zinc-50 rounded-2xl font-bold border border-zinc-100 outline-none focus:border-black transition-all resize-none" />
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase text-zinc-400 ml-2 italic">Nombre del Producto</label>
+                  <input name="nombre" placeholder="Nombre" required className="w-full p-4 bg-zinc-50 rounded-2xl font-bold border border-zinc-100 outline-none focus:border-black transition-all" />
+                </div>
+                
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase text-zinc-400 ml-2 italic">Categoría</label>
+                  <select name="categoria" required defaultValue="" className="w-full p-4 bg-zinc-50 rounded-2xl font-bold border border-zinc-100 outline-none focus:border-black transition-all appearance-none cursor-pointer">
+                    <option value="" disabled>Elegir Categoría</option>
+                    {CATEGORIAS.map(cat => (<option key={cat} value={cat}>{cat}</option>))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase text-zinc-400 ml-2 italic">Descripción</label>
+                <textarea name="descripcion" placeholder="Descripción del producto..." rows={3} className="w-full p-4 bg-zinc-50 rounded-2xl font-bold border border-zinc-100 outline-none focus:border-black transition-all resize-none" />
+              </div>
 
               <div className="grid grid-cols-2 gap-4">
-                <input name="precio" type="number" step="0.01" placeholder="Precio" required className="p-4 bg-zinc-50 rounded-2xl font-bold border border-zinc-100 outline-none focus:border-black transition-all" />
-                <input name="stock" type="number" placeholder="Stock" required className="p-4 bg-zinc-50 rounded-2xl font-bold border border-zinc-100 outline-none focus:border-black transition-all" />
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase text-zinc-400 ml-2 italic">Precio ($)</label>
+                  <input name="precio" type="number" step="0.01" placeholder="0.00" required className="w-full p-4 bg-zinc-50 rounded-2xl font-bold border border-zinc-100 outline-none focus:border-black transition-all" />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase text-zinc-400 ml-2 italic">Stock (Unidades)</label>
+                  <input name="stock" type="number" placeholder="0" required className="w-full p-4 bg-zinc-50 rounded-2xl font-bold border border-zinc-100 outline-none focus:border-black transition-all" />
+                </div>
               </div>
             </div>
 
@@ -374,14 +372,14 @@ const eliminarProducto = async (id: string, nombre: string) => {
           <form onSubmit={handleUpdate} className="relative bg-white w-full max-w-lg p-8 rounded-[3rem] shadow-2xl space-y-5 overflow-y-auto max-h-[85vh] border border-zinc-200 no-scrollbar">
             <h2 className="text-2xl font-black uppercase italic tracking-tighter">Editar Datos</h2>
             <div className="space-y-3">
-              <label className="text-[10px] font-black uppercase text-zinc-400">Galería</label>
+              <label className="text-[10px] font-black uppercase text-zinc-400 ml-2">Galería (Arrastra para reordenar)</label>
               <div className="flex gap-3 overflow-x-auto pb-2 items-center no-scrollbar">
                 <div onClick={() => fileEditInputRef.current?.click()} className="w-20 h-20 shrink-0 bg-zinc-100 rounded-2xl border-2 border-dashed border-zinc-300 flex items-center justify-center cursor-pointer">
                   <span className="text-xl">+</span>
                   <input type="file" ref={fileEditInputRef} onChange={(e) => handleFileChange(e, true)} className="hidden" />
                 </div>
                 {getUrlsArray(editando.imagen_url).map((url, index) => (
-                  <div key={index} draggable onDragStart={() => onDragStart(index)} onDragOver={(e) => onDragOver(e, index)} onDragEnd={() => setDraggedIndex(null)}
+                  <div key={index} draggable onDragStart={() => onDragStart(index)} onDragOver={(e) => onDragOver(e, index, true)} onDragEnd={() => setDraggedIndex(null)}
                     className={`relative w-20 h-20 shrink-0 rounded-2xl overflow-hidden border-2 cursor-move transition-all ${draggedIndex === index ? 'opacity-30 scale-95' : 'border-zinc-100'}`}>
                     <img src={url} className="w-full h-full object-cover pointer-events-none" alt="" />
                     <button type="button" onClick={() => eliminarFotoDeEdicion(index)} className="absolute top-1 right-1 bg-red-500 text-white w-5 h-5 rounded-full text-[10px] flex items-center justify-center">✕</button>
@@ -392,21 +390,32 @@ const eliminarProducto = async (id: string, nombre: string) => {
 
             <div className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <input value={editando.nombre} onChange={e => setEditando({...editando, nombre: e.target.value})} className="p-4 bg-zinc-100 rounded-2xl font-bold border-none outline-none" placeholder="Nombre" />
-                <select 
-                  value={editando.categoria} 
-                  onChange={e => setEditando({...editando, categoria: e.target.value})} 
-                  className="p-4 bg-zinc-100 rounded-2xl font-bold border-none outline-none appearance-none cursor-pointer"
-                >
-                  {CATEGORIAS.map(cat => (
-                    <option key={cat} value={cat}>{cat}</option>
-                  ))}
-                </select>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase text-zinc-400 ml-2 italic">Nombre</label>
+                  <input value={editando.nombre} onChange={e => setEditando({...editando, nombre: e.target.value})} className="w-full p-4 bg-zinc-100 rounded-2xl font-bold border-none outline-none" placeholder="Nombre" />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase text-zinc-400 ml-2 italic">Categoría</label>
+                  <select value={editando.categoria} onChange={e => setEditando({...editando, categoria: e.target.value})} className="w-full p-4 bg-zinc-100 rounded-2xl font-bold border-none outline-none appearance-none cursor-pointer">
+                    {CATEGORIAS.map(cat => (<option key={cat} value={cat}>{cat}</option>))}
+                  </select>
+                </div>
               </div>
-              <textarea value={editando.descripcion || ""} onChange={e => setEditando({...editando, descripcion: e.target.value})} rows={3} className="w-full p-4 bg-zinc-100 rounded-2xl font-bold border-none outline-none resize-none" placeholder="Descripción" />
+              
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase text-zinc-400 ml-2 italic">Descripción</label>
+                <textarea value={editando.descripcion || ""} onChange={e => setEditando({...editando, descripcion: e.target.value})} rows={3} className="w-full p-4 bg-zinc-100 rounded-2xl font-bold border-none outline-none resize-none" placeholder="Descripción" />
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
-                <input type="number" step="0.01" value={editando.precio} onChange={e => setEditando({...editando, precio: parseFloat(e.target.value)})} className="w-full p-4 bg-zinc-100 rounded-2xl font-bold border-none outline-none" />
-                <input type="number" value={editando.stock} onChange={e => setEditando({...editando, stock: parseInt(e.target.value)})} className="w-full p-4 bg-zinc-100 rounded-2xl font-bold border-none outline-none" />
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase text-zinc-400 ml-2 italic">Precio ($)</label>
+                  <input type="number" step="0.01" value={editando.precio} onChange={e => setEditando({...editando, precio: parseFloat(e.target.value)})} className="w-full p-4 bg-zinc-100 rounded-2xl font-bold border-none outline-none" />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase text-zinc-400 ml-2 italic">Stock</label>
+                  <input type="number" value={editando.stock} onChange={e => setEditando({...editando, stock: parseInt(e.target.value)})} className="w-full p-4 bg-zinc-100 rounded-2xl font-bold border-none outline-none" />
+                </div>
               </div>
             </div>
 

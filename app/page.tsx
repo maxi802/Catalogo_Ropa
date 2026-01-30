@@ -11,8 +11,8 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-const categoriasMenu = ['Todos', 'Zapatillas', 'Remeras', 'Pantalones'];
-const ORDEN_PRIORIDAD = ['Zapatillas', 'Remeras', 'Pantalones'];
+const categoriasMenu = ['Todos', 'Zapatillas', 'Camisetas','Conjuntos','Medias','Gorras','Pelotas','Pantalones'];
+const ORDEN_PRIORIDAD = ['Zapatillas', 'Camisetas', 'Pantalones','Conjuntos','Medias','Gorras','Pelotas'];
 
 interface Producto {
   id: string;
@@ -214,7 +214,10 @@ export default function TiendaPage() {
       <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-md border-b">
         <div className="max-w-7xl mx-auto px-4 py-6">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-            <h1 className="text-3xl font-black uppercase tracking-tighter italic">TuMarca Store</h1>
+            <div className="flex items-center gap-3">
+              <img src="/logoososinfondo.png" alt="Logo" className="w-30 h-30 object-contain" />
+              <h1 className="text-3xl font-black uppercase tracking-tighter italic">Luny Importa2</h1>
+            </div>
             <div className="relative w-full md:w-80">
               <input 
                 type="text" 
@@ -301,33 +304,23 @@ export default function TiendaPage() {
         )}
       </main>
 
-      {/* --- FOOTER SECCIÓN --- */}
-      <footer className="bg-black text-white py-16 mt-20">
+      {/* --- FOOTER SECCIÓN MINIMALISTA NEGRO --- */}
+      <footer className="bg-black py-10 mt-20">
         <div className="max-w-7xl mx-auto px-4">
-          <div className="flex flex-col md:flex-row justify-between items-center gap-8 border-b border-zinc-800 pb-12 mb-12">
-            <div>
-              <h2 className="text-3xl font-black uppercase tracking-tighter italic mb-2">TuMarca Store</h2>
-              <p className="text-zinc-500 text-[10px] font-bold uppercase tracking-[0.2em]">The Future of Streetwear</p>
+          <div className="flex flex-col md:flex-row justify-between items-center gap-6">
+            <div className="flex items-center gap-3">
+              <img src="/logoososinfondo.png" alt="Logo" className="w-12 h-12 object-contain" />
+              <h2 className="text-lg font-black uppercase tracking-tighter italic text-white">Luny Importa2</h2>
             </div>
             
-            <div className="flex flex-col items-center md:items-end">
-              <span className="text-zinc-500 text-[10px] font-black uppercase tracking-widest mb-2">Contacto & Soporte</span>
-              <a 
-                href={`mailto:martinezmaximilianor@gmail.com`} 
-                className="text-lg font-bold hover:text-zinc-400 transition-colors"
-              >
-                martinezmaximilianor@gmail.com
-              </a>
+            <div className="flex flex-col md:flex-row items-center gap-6 text-[9px] font-black uppercase tracking-widest text-zinc-500">
+              <p>© {new Date().getFullYear()} Luny Importa2</p>
+              <div className="hidden md:block w-1 h-1 bg-zinc-800 rounded-full"></div>
+              <p>Desarrolado por</p>
+              <a href="mailto:martinezmaximilianor@gmail.com" className="hover:text-white transition-colors lowercase">martinezmaximilianor@gmail.com</a>
+              <span className="text-zinc-300">Maximiliano Rene Martinez</span>
+              <div className="hidden md:block w-1 h-1 bg-zinc-800 rounded-full"></div>
             </div>
-          </div>
-
-          <div className="flex flex-col md:flex-row justify-between items-center gap-6 text-[10px] font-black uppercase tracking-[0.3em] text-zinc-600 text-center">
-            <p>© {new Date().getFullYear()} Todos los derechos reservados.</p>
-            <p>Diseñado & Desarrollado por <span className="text-white">Maximiliano Rene Martinez</span></p>
-            {/* <div className="flex gap-6">
-              <span className="hover:text-white cursor-pointer transition-colors">Instagram</span>
-              <span className="hover:text-white cursor-pointer transition-colors">Twitter</span>
-            </div> */}
           </div>
         </div>
       </footer>

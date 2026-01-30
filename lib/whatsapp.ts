@@ -15,7 +15,7 @@ export interface CartItem {
  */
 export const enviarPedidoWhatsApp = (cart: CartItem[], total: number) => {
   // CONFIGURACIÓN: Cambia este número por el tuyo (con código de país, sin el +)
-  const TELEFONO_DESTINO = "5493875403428"; 
+  const TELEFONO_DESTINO = "5493884874331"; 
 
   // 1. Encabezado del mensaje
   let mensaje = `*📦 NUEVO PEDIDO*\n`;
