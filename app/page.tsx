@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import { enviarPedidoWhatsApp } from '@/lib/whatsapp'; 
+import { enviarPedidoWhatsApp, CartItem } from '@/lib/whatsapp'; 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
@@ -87,7 +87,7 @@ export default function TiendaPage() {
       const existe = prev.find(item => item.id === producto.id && item.talleSeleccionado === talle);
       if (existe) {
         if (existe.cantidad >= stockDisponible) {
-          alert(`Límite de stock para talle ${talle} alcanzado.`);
+          alert(`⚠️ No hay más stock disponible para el talle ${talle}. Solo quedan ${stockDisponible} unidades.`);
           return prev;
         }
         return prev.map(item => 
@@ -106,7 +106,12 @@ export default function TiendaPage() {
       if (item.id === id && item.talleSeleccionado === talle) {
         const nuevaCant = item.cantidad + delta;
         const stockMax = item.stock_talles[talle] || 0;
-        if (delta > 0 && nuevaCant > stockMax) return item;
+        
+        if (delta > 0 && nuevaCant > stockMax) {
+          alert(`⚠️ Límite de stock alcanzado (${stockMax} disponibles)`);
+          return item;
+        }
+        
         return { ...item, cantidad: Math.max(0, nuevaCant) };
       }
       return item;
@@ -114,6 +119,18 @@ export default function TiendaPage() {
   };
 
   const totalCarrito = carrito.reduce((acc, item) => acc + (item.precio * item.cantidad), 0);
+
+  // CORRECCIÓN DEL ERROR DE TIPO PARA WHATSAPP
+  const handleFinalizarCompra = () => {
+    const itemsParaWhatsApp: CartItem[] = carrito.map(item => ({
+      nombre: item.nombre,
+      precio: item.precio,
+      cantidad: item.cantidad,
+      talle: item.talleSeleccionado, // Mapeamos talleSeleccionado a talle
+      imagen_url: item.imagen_url
+    }));
+    enviarPedidoWhatsApp(itemsParaWhatsApp, totalCarrito);
+  };
 
   const secciones = useMemo(() => {
     let base = productos;
@@ -180,7 +197,7 @@ export default function TiendaPage() {
               </div>
               <button 
                 disabled={carrito.length === 0}
-                onClick={() => enviarPedidoWhatsApp(carrito, totalCarrito)}
+                onClick={handleFinalizarCompra}
                 className="w-full bg-[#25D366] text-white py-6 rounded-4xl font-black uppercase tracking-widest hover:bg-[#20ba5a] transition-all shadow-xl shadow-green-500/20 flex items-center justify-center gap-3"
               >
                 Finalizar Pedido
@@ -250,7 +267,6 @@ export default function TiendaPage() {
                           <h3 className="text-[11px] font-black uppercase leading-tight mb-2 h-8 line-clamp-2 hover:underline cursor-pointer">{prod.nombre}</h3>
                         </Link>
 
-                        {/* --- NUEVA SECCIÓN: CÍRCULOS DE TALLES --- */}
                         <div className="flex flex-wrap gap-1.5 mb-4">
                           {Object.entries(prod.stock_talles || {}).map(([talle, stock]) => (
                             <div 
@@ -261,7 +277,7 @@ export default function TiendaPage() {
                                   ? 'border-black text-black hover:bg-black hover:text-white cursor-pointer' 
                                   : 'border-zinc-200 text-zinc-300 bg-zinc-50 overflow-hidden relative after:content-[""] after:absolute after:w-full after:h-px after:bg-zinc-300 after:rotate-45'
                                 }`}
-                              onClick={() => stock > 0 && setSeleccionarTalleId(prod.id)}
+                              onClick={() => stock > 0 && agregarAlCarrito(prod, talle)}
                             >
                               {talle}
                             </div>
@@ -279,7 +295,6 @@ export default function TiendaPage() {
                               {seleccionarTalleId === prod.id ? 'Cerrar' : '+ Añadir'}
                             </button>
 
-                            {/* Mini Popover de Talles al clickear añadir */}
                             {seleccionarTalleId === prod.id && (
                               <div className="absolute bottom-full right-0 mb-3 bg-white border border-zinc-100 shadow-2xl p-5 rounded-4xl z-30 min-w-45 animate-in fade-in zoom-in duration-200">
                                 <p className="text-[10px] font-black uppercase mb-4 text-zinc-400 tracking-widest text-center">¿Qué talle buscas?</p>

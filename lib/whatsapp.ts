@@ -1,20 +1,19 @@
 /**
- * Interfaz local para compatibilidad con el nuevo formato de imágenes.
+ * Interfaz actualizada para incluir el talle seleccionado.
  */
 export interface CartItem {
   nombre: string;
   precio: number;
   cantidad: number;
-  imagen_url: string | string[]; // Acepta string único o Array de strings
+  talle: string; // Nueva propiedad para el talle
+  imagen_url: string | string[];
 }
 
 /**
- * Envía el pedido a WhatsApp con un formato profesional y limpio.
- * @param cart - Array de items del carrito.
- * @param total - Monto total de la compra.
+ * Envía el pedido a WhatsApp con el detalle de productos y sus talles.
  */
 export const enviarPedidoWhatsApp = (cart: CartItem[], total: number) => {
-  // CONFIGURACIÓN: Cambia este número por el tuyo (con código de país, sin el +)
+  // CONFIGURACIÓN: Tu número de WhatsApp
   const TELEFONO_DESTINO = "5493884874331"; 
 
   // 1. Encabezado del mensaje
@@ -25,13 +24,14 @@ export const enviarPedidoWhatsApp = (cart: CartItem[], total: number) => {
   cart.forEach((item) => {
     const subtotal = item.precio * item.cantidad;
     mensaje += `*${item.cantidad}x* ${item.nombre}\n`;
+    mensaje += `📍 *Talle: ${item.talle}*\n`; // Línea agregada para el talle
     mensaje += `Subtotal: $${subtotal.toLocaleString()}\n\n`;
   });
 
   // 3. Pie del mensaje con el Total
   mensaje += `--------------------------\n`;
   mensaje += `*TOTAL A PAGAR: $${total.toLocaleString()}*\n\n`;
-
+  mensaje += `_Enviado desde el catálogo web_`;
 
   // 4. Codificar para URL
   const textoFinal = encodeURIComponent(mensaje);
