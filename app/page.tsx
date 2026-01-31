@@ -20,11 +20,12 @@ interface Producto {
   precio: number;
   categoria: string;
   imagen_url: string[]; 
-  stock: number;
+  stock_talles: { [talle: string]: number }; 
 }
 
 interface ItemCarrito extends Producto {
   cantidad: number;
+  talleSeleccionado: string;
 }
 
 export default function TiendaPage() {
@@ -34,6 +35,7 @@ export default function TiendaPage() {
   const [categoriaActual, setCategoriaActual] = useState('Todos');
   const [cargando, setCargando] = useState(true);
   const [carritoAbierto, setCarritoAbierto] = useState(false);
+  const [seleccionarTalleId, setSeleccionarTalleId] = useState<string | null>(null);
   
   const pathname = usePathname();
   const cargadoInicial = useRef(false);
@@ -43,20 +45,14 @@ export default function TiendaPage() {
     if (guardado) {
       try {
         const carritoParseado = JSON.parse(guardado);
-        if (carritoParseado.length >= 0) {
-          setCarrito(carritoParseado);
-        }
-      } catch (e) {
-        console.error("Error al parsear el carrito:", e);
-      }
+        setCarrito(carritoParseado);
+      } catch (e) { console.error(e); }
     }
     if (localStorage.getItem('abrirCarrito') === 'true') {
       setCarritoAbierto(true);
       localStorage.removeItem('abrirCarrito');
     }
-    setTimeout(() => {
-      cargadoInicial.current = true;
-    }, 300);
+    setTimeout(() => { cargadoInicial.current = true; }, 300);
   }, []);
 
   useEffect(() => {
@@ -70,12 +66,6 @@ export default function TiendaPage() {
   }, [sincronizarTodo]);
 
   useEffect(() => {
-    if (pathname === '/') {
-      sincronizarTodo();
-    }
-  }, [pathname, sincronizarTodo]);
-
-  useEffect(() => {
     if (cargadoInicial.current) {
       localStorage.setItem('carrito', JSON.stringify(carrito));
     }
@@ -84,47 +74,39 @@ export default function TiendaPage() {
   const fetchProductos = useCallback(async () => {
     try {
       setCargando(true);
-      const { data, error } = await supabase
-        .from('productos')
-        .select('*')
-        .order('categoria', { ascending: true });
-
+      const { data, error } = await supabase.from('productos').select('*').order('categoria', { ascending: true });
       if (data) setProductos(data);
-      if (error) console.error("Error:", error.message);
-    } finally {
-      setCargando(false);
-    }
+    } finally { setCargando(false); }
   }, []);
 
-  useEffect(() => {
-    fetchProductos();
-  }, [fetchProductos]);
+  useEffect(() => { fetchProductos(); }, [fetchProductos]);
 
-  const agregarAlCarrito = (producto: Producto) => {
+  const agregarAlCarrito = (producto: Producto, talle: string) => {
+    const stockDisponible = producto.stock_talles[talle] || 0;
     setCarrito(prev => {
-      const existe = prev.find(item => item.id === producto.id);
+      const existe = prev.find(item => item.id === producto.id && item.talleSeleccionado === talle);
       if (existe) {
-        if (existe.cantidad >= producto.stock) {
-          alert(`Lo sentimos, solo hay ${producto.stock} unidades disponibles.`);
+        if (existe.cantidad >= stockDisponible) {
+          alert(`Límite de stock para talle ${talle} alcanzado.`);
           return prev;
         }
         return prev.map(item => 
-          item.id === producto.id ? { ...item, cantidad: item.cantidad + 1 } : item
+          (item.id === producto.id && item.talleSeleccionado === talle) 
+          ? { ...item, cantidad: item.cantidad + 1 } : item
         );
       }
-      return [...prev, { ...producto, cantidad: 1 }];
+      return [...prev, { ...producto, cantidad: 1, talleSeleccionado: talle }];
     });
+    setSeleccionarTalleId(null);
     setCarritoAbierto(true);
   };
 
-  const modificarCantidad = (id: string, delta: number) => {
+  const modificarCantidad = (id: string, talle: string, delta: number) => {
     setCarrito(prev => prev.map(item => {
-      if (item.id === id) {
+      if (item.id === id && item.talleSeleccionado === talle) {
         const nuevaCant = item.cantidad + delta;
-        if (delta > 0 && nuevaCant > item.stock) {
-          alert(`Límite de stock alcanzado (${item.stock} unidades)`);
-          return item;
-        }
+        const stockMax = item.stock_talles[talle] || 0;
+        if (delta > 0 && nuevaCant > stockMax) return item;
         return { ...item, cantidad: Math.max(0, nuevaCant) };
       }
       return item;
@@ -143,12 +125,8 @@ export default function TiendaPage() {
       grupos[prod.categoria].push(prod);
     });
     const gruposOrdenados: { [key: string]: Producto[] } = {};
-    ORDEN_PRIORIDAD.forEach(cat => {
-      if (grupos[cat]) gruposOrdenados[cat] = grupos[cat];
-    });
-    Object.keys(grupos).forEach(cat => {
-      if (!gruposOrdenados[cat]) gruposOrdenados[cat] = grupos[cat];
-    });
+    ORDEN_PRIORIDAD.forEach(cat => { if (grupos[cat]) gruposOrdenados[cat] = grupos[cat]; });
+    Object.keys(grupos).forEach(cat => { if (!gruposOrdenados[cat]) gruposOrdenados[cat] = grupos[cat]; });
     return gruposOrdenados;
   }, [productos, categoriaActual, busqueda]);
 
@@ -157,7 +135,7 @@ export default function TiendaPage() {
       {/* Botón Flotante Carrito */}
       <button 
         onClick={() => setCarritoAbierto(true)}
-        className="fixed bottom-8 right-8 z-60 bg-black text-white p-6 rounded-full shadow-2xl hover:scale-110 transition-transform active:scale-95"
+        className="fixed bottom-8 right-8 z-50 bg-black text-white p-6 rounded-full shadow-2xl hover:scale-110 transition-transform active:scale-95"
       >
         <span className="absolute -top-1 -right-1 bg-red-500 w-6 h-6 rounded-full text-[10px] font-bold flex items-center justify-center border-2 border-white">
           {carrito.reduce((acc, item) => acc + item.cantidad, 0)}
@@ -171,24 +149,25 @@ export default function TiendaPage() {
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setCarritoAbierto(false)} />
           <div className="relative w-full max-w-md bg-white h-full shadow-2xl flex flex-col p-8 animate-in slide-in-from-right duration-300">
             <div className="flex justify-between items-center mb-10">
-              <h2 className="text-2xl font-black uppercase tracking-tighter italic">Tu Carrito</h2>
-              <button onClick={() => setCarritoAbierto(false)} className="text-sm font-bold uppercase text-zinc-300">Cerrar</button>
+              <h2 className="text-2xl font-black uppercase italic tracking-tighter">Tu Carrito</h2>
+              <button onClick={() => setCarritoAbierto(false)} className="text-xs font-bold uppercase text-zinc-400">Cerrar</button>
             </div>
             <div className="flex-1 overflow-y-auto space-y-6 no-scrollbar">
               {carrito.length === 0 ? (
                 <p className="text-center text-zinc-300 font-bold uppercase py-20 italic">El carrito está vacío</p>
               ) : (
                 carrito.map(item => (
-                  <div key={item.id} className="flex gap-4 items-center bg-zinc-50 p-4 rounded-3xl">
-                    <img src={Array.isArray(item.imagen_url) ? item.imagen_url[0] : item.imagen_url} className="w-16 h-16 rounded-2xl object-cover" alt="" />
+                  <div key={`${item.id}-${item.talleSeleccionado}`} className="flex gap-4 items-center bg-zinc-50 p-4 rounded-3xl">
+                    <img src={item.imagen_url[0]} className="w-16 h-16 rounded-2xl object-cover" alt="" />
                     <div className="flex-1">
                       <h4 className="text-[10px] font-black uppercase truncate">{item.nombre}</h4>
+                      <p className="text-[9px] text-zinc-500 font-bold uppercase">Talle: {item.talleSeleccionado}</p>
                       <p className="text-xs font-bold">$ {item.precio * item.cantidad}</p>
                     </div>
                     <div className="flex items-center gap-3 bg-white px-3 py-1 rounded-full border">
-                      <button onClick={() => modificarCantidad(item.id, -1)} className="font-bold text-lg">-</button>
+                      <button onClick={() => modificarCantidad(item.id, item.talleSeleccionado, -1)} className="font-bold">-</button>
                       <span className="text-xs font-black">{item.cantidad}</span>
-                      <button onClick={() => modificarCantidad(item.id, 1)} className={`font-bold text-lg ${item.cantidad >= item.stock ? 'text-zinc-300' : 'text-black'}`}>+</button>
+                      <button onClick={() => modificarCantidad(item.id, item.talleSeleccionado, 1)} className="font-bold">+</button>
                     </div>
                   </div>
                 ))
@@ -202,7 +181,7 @@ export default function TiendaPage() {
               <button 
                 disabled={carrito.length === 0}
                 onClick={() => enviarPedidoWhatsApp(carrito, totalCarrito)}
-                className="w-full bg-[#25D366] text-white py-6 rounded-4xl font-black uppercase tracking-widest hover:bg-[#20ba5a] disabled:bg-zinc-100 disabled:text-zinc-300 transition-all shadow-xl shadow-green-500/20 flex items-center justify-center gap-3"
+                className="w-full bg-[#25D366] text-white py-6 rounded-4xl font-black uppercase tracking-widest hover:bg-[#20ba5a] transition-all shadow-xl shadow-green-500/20 flex items-center justify-center gap-3"
               >
                 Finalizar Pedido
               </button>
@@ -211,22 +190,21 @@ export default function TiendaPage() {
         </div>
       )}
 
-      <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-md border-b">
+      {/* Header */}
+      <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b">
         <div className="max-w-7xl mx-auto px-4 py-6">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
             <div className="flex items-center gap-3">
-              <img src="/logoososinfondo.png" alt="Logo" className="w-30 h-30 object-contain" />
+              <img src="/logoososinfondo.png" alt="Logo" className="w-24 h-24 object-contain" />
               <h1 className="text-3xl font-black uppercase tracking-tighter italic">Luny Importa2</h1>
             </div>
-            <div className="relative w-full md:w-80">
-              <input 
-                type="text" 
-                placeholder="Buscar prenda..."
-                value={busqueda}
-                onChange={(e) => setBusqueda(e.target.value)}
-                className="w-full bg-zinc-100 border-none rounded-2xl px-6 py-3 text-sm focus:ring-2 ring-black outline-none transition-all"
-              />
-            </div>
+            <input 
+              type="text" 
+              placeholder="Buscar prenda..."
+              value={busqueda}
+              onChange={(e) => setBusqueda(e.target.value)}
+              className="w-full md:w-80 bg-zinc-100 border-none rounded-2xl px-6 py-3 text-sm focus:ring-2 ring-black outline-none"
+            />
           </div>
           <div className="flex gap-3 overflow-x-auto pb-2 mt-8 no-scrollbar">
             {categoriasMenu.map(cat => (
@@ -244,23 +222,12 @@ export default function TiendaPage() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 py-12 flex-grow">
+      {/* Main Content */}
+      <main className="max-w-7xl mx-auto px-4 py-12 grow">
         {cargando ? (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
-            {[1, 2, 3, 4, 5, 6, 7, 8].map(n => (
-              <div key={n} className="space-y-4">
-                <div className="aspect-square bg-zinc-100 animate-pulse rounded-4xl" />
-                <div className="h-4 w-3/4 bg-zinc-100 animate-pulse rounded-full" />
-                <div className="h-6 w-1/2 bg-zinc-100 animate-pulse rounded-full" />
-              </div>
-            ))}
-          </div>
-        ) : Object.keys(secciones).length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-32 text-center">
-            <span className="text-6xl mb-6 opacity-20">🔍</span>
-            <h2 className="text-2xl font-black uppercase italic tracking-tighter mb-2">No hay resultados</h2>
-            <button onClick={() => { setBusqueda(''); setCategoriaActual('Todos'); }} className="px-8 py-3 bg-black text-white text-[10px] font-black uppercase rounded-2xl">Ver todo</button>
-          </div>
+           <div className="grid grid-cols-2 md:grid-cols-4 gap-8 animate-pulse">
+             {[1,2,3,4].map(n => <div key={n} className="aspect-square bg-zinc-100 rounded-4xl" />)}
+           </div>
         ) : (
           <div className="space-y-20">
             {Object.keys(secciones).map(categoria => (
@@ -269,30 +236,71 @@ export default function TiendaPage() {
                   <h2 className="text-xl font-black uppercase tracking-tighter italic">{categoria}</h2>
                   <div className="h-0.5 flex-1 bg-zinc-100"></div>
                 </div>
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-12 md:gap-x-8">
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-12">
                   {secciones[categoria].map((prod) => (
-                    <div key={prod.id} className="group">
+                    <div key={prod.id} className="group flex flex-col">
                       <Link href={`/producto/${prod.id}`}>
                         <div className="relative aspect-square mb-5 overflow-hidden rounded-4xl bg-zinc-50 border border-zinc-100 cursor-pointer">
-                          {prod.imagen_url && prod.imagen_url.length > 0 && (
-                            <img src={prod.imagen_url[0]} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" alt={prod.nombre} />
-                          )}
-                          {prod.stock <= 0 && (
-                            <div className="absolute inset-0 bg-white/60 flex items-center justify-center">
-                              <span className="bg-white border-2 border-black px-4 py-1 rounded-full text-[10px] font-black uppercase">Agotado</span>
-                            </div>
-                          )}
+                          <img src={prod.imagen_url[0]} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" alt={prod.nombre} />
                         </div>
                       </Link>
-                      <div className="px-1">
+                      
+                      <div className="px-1 flex flex-col grow">
                         <Link href={`/producto/${prod.id}`}>
-                          <h3 className="text-[11px] font-black uppercase leading-tight mb-2 h-8 line-clamp-2 cursor-pointer hover:underline">{prod.nombre}</h3>
+                          <h3 className="text-[11px] font-black uppercase leading-tight mb-2 h-8 line-clamp-2 hover:underline cursor-pointer">{prod.nombre}</h3>
                         </Link>
-                        <div className="flex items-center justify-between mt-2">
+
+                        {/* --- NUEVA SECCIÓN: CÍRCULOS DE TALLES --- */}
+                        <div className="flex flex-wrap gap-1.5 mb-4">
+                          {Object.entries(prod.stock_talles || {}).map(([talle, stock]) => (
+                            <div 
+                              key={talle}
+                              title={stock > 0 ? `Stock: ${stock}` : 'Sin stock'}
+                              className={`w-7 h-7 rounded-full border flex items-center justify-center text-[9px] font-bold transition-all
+                                ${stock > 0 
+                                  ? 'border-black text-black hover:bg-black hover:text-white cursor-pointer' 
+                                  : 'border-zinc-200 text-zinc-300 bg-zinc-50 overflow-hidden relative after:content-[""] after:absolute after:w-full after:h-px after:bg-zinc-300 after:rotate-45'
+                                }`}
+                              onClick={() => stock > 0 && setSeleccionarTalleId(prod.id)}
+                            >
+                              {talle}
+                            </div>
+                          ))}
+                        </div>
+
+                        <div className="mt-auto flex items-center justify-between">
                           <span className="text-lg font-black tracking-tighter">${prod.precio}</span>
-                          <button disabled={prod.stock <= 0} onClick={() => agregarAlCarrito(prod)} className="text-[9px] font-black uppercase px-4 py-2.5 rounded-xl bg-black text-white hover:bg-zinc-800 transition-all flex items-center gap-1 active:scale-95">
-                            <span>+</span> Añadir
-                          </button>
+                          
+                          <div className="relative">
+                            <button 
+                              onClick={() => setSeleccionarTalleId(seleccionarTalleId === prod.id ? null : prod.id)}
+                              className="text-[9px] font-black uppercase px-4 py-2.5 rounded-xl bg-black text-white hover:bg-zinc-800 transition-all active:scale-95 flex items-center gap-1"
+                            >
+                              {seleccionarTalleId === prod.id ? 'Cerrar' : '+ Añadir'}
+                            </button>
+
+                            {/* Mini Popover de Talles al clickear añadir */}
+                            {seleccionarTalleId === prod.id && (
+                              <div className="absolute bottom-full right-0 mb-3 bg-white border border-zinc-100 shadow-2xl p-5 rounded-4xl z-30 min-w-45 animate-in fade-in zoom-in duration-200">
+                                <p className="text-[10px] font-black uppercase mb-4 text-zinc-400 tracking-widest text-center">¿Qué talle buscas?</p>
+                                <div className="grid grid-cols-2 gap-2">
+                                  {Object.entries(prod.stock_talles).map(([talle, cant]) => (
+                                    <button
+                                      key={talle}
+                                      disabled={cant <= 0}
+                                      onClick={() => agregarAlCarrito(prod, talle)}
+                                      className={`py-3 rounded-xl text-[10px] font-black uppercase border transition-all
+                                        ${cant > 0 
+                                          ? 'border-black hover:bg-black hover:text-white' 
+                                          : 'opacity-10 border-zinc-300 cursor-not-allowed'}`}
+                                    >
+                                      {talle}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -304,7 +312,6 @@ export default function TiendaPage() {
         )}
       </main>
 
-      {/* --- FOOTER SECCIÓN MINIMALISTA NEGRO --- */}
       <footer className="bg-black py-10 mt-20">
         <div className="max-w-7xl mx-auto px-4">
           <div className="flex flex-col md:flex-row justify-between items-center gap-6">
@@ -312,14 +319,10 @@ export default function TiendaPage() {
               <img src="/logoososinfondo.png" alt="Logo" className="w-12 h-12 object-contain" />
               <h2 className="text-lg font-black uppercase tracking-tighter italic text-white">Luny Importa2</h2>
             </div>
-            
             <div className="flex flex-col md:flex-row items-center gap-6 text-[9px] font-black uppercase tracking-widest text-zinc-500">
               <p>© {new Date().getFullYear()} Luny Importa2</p>
-              <div className="hidden md:block w-1 h-1 bg-zinc-800 rounded-full"></div>
-              <p>Desarrolado por</p>
+              <p>Desarrollado por <span className="text-zinc-300">Maximiliano Rene Martinez</span></p>
               <a href="mailto:martinezmaximilianor@gmail.com" className="hover:text-white transition-colors lowercase">martinezmaximilianor@gmail.com</a>
-              <span className="text-zinc-300">Maximiliano Rene Martinez</span>
-              <div className="hidden md:block w-1 h-1 bg-zinc-800 rounded-full"></div>
             </div>
           </div>
         </div>

@@ -15,12 +15,13 @@ interface Producto {
   precio: number;
   categoria: string;
   imagen_url: string[];
-  stock: number;
+  stock_talles: { [talle: string]: number }; // Usamos el nuevo campo JSONB
   descripcion: string;
 }
 
 interface ItemCarrito extends Producto {
   cantidad: number;
+  talleSeleccionado: string;
 }
 
 export default function ProductoDetalle() {
@@ -30,6 +31,7 @@ export default function ProductoDetalle() {
   const [producto, setProducto] = useState<Producto | null>(null);
   const [cargando, setCargando] = useState(true);
   const [fotoActual, setFotoActual] = useState(0);
+  const [talleElegido, setTalleElegido] = useState<string>(''); // Estado para el talle obligatorio
 
   useEffect(() => {
     async function getProducto() {
@@ -51,40 +53,41 @@ export default function ProductoDetalle() {
   const manejarAñadirAlCarrito = () => {
     if (!producto) return;
     
-    // 1. Obtener lo que hay actualmente en localStorage de forma segura
+    // VALIDACIÓN OBLIGATORIA DE TALLE
+    if (!talleElegido) {
+      alert("Por favor, selecciona un talle antes de añadir al carrito.");
+      return;
+    }
+    
     const storageActual = localStorage.getItem('carrito');
     let carritoActual: ItemCarrito[] = [];
     
     try {
-      if (storageActual) {
-        carritoActual = JSON.parse(storageActual);
-      }
+      if (storageActual) carritoActual = JSON.parse(storageActual);
     } catch (e) {
-      console.error("Error al leer el carrito del storage:", e);
       carritoActual = [];
     }
     
-    // 2. Buscar si el producto ya está en el carrito
-    const indice = carritoActual.findIndex(item => item.id === producto.id);
+    // Buscamos combinación ID + TALLE
+    const indice = carritoActual.findIndex(
+        item => item.id === producto.id && item.talleSeleccionado === talleElegido
+    );
     
+    const stockMaximo = producto.stock_talles[talleElegido] || 0;
+
     if (indice !== -1) {
-      if (carritoActual[indice].cantidad < producto.stock) {
+      if (carritoActual[indice].cantidad < stockMaximo) {
         carritoActual[indice].cantidad += 1;
       } else {
-        alert(`Lo sentimos, solo hay ${producto.stock} unidades disponibles.`);
+        alert(`Lo sentimos, no hay más stock disponible para el talle ${talleElegido}.`);
         return;
       }
     } else {
-      // Agregamos el nuevo producto
-      carritoActual.push({ ...producto, cantidad: 1 });
+      carritoActual.push({ ...producto, cantidad: 1, talleSeleccionado: talleElegido });
     }
     
-    // 3. GUARDADO CRÍTICO: Guardar antes de navegar
-    // Esto asegura que la Home encuentre los datos actualizados inmediatamente
     localStorage.setItem('carrito', JSON.stringify(carritoActual));
     localStorage.setItem('abrirCarrito', 'true');
-    
-    // 4. Navegar a la Home
     router.push('/'); 
   };
 
@@ -104,6 +107,8 @@ export default function ProductoDetalle() {
   );
 
   const imagenes = Array.isArray(producto.imagen_url) ? producto.imagen_url : [producto.imagen_url];
+  // Calculamos si hay stock general (si al menos un talle tiene > 0)
+  const hayStockGeneral = Object.values(producto.stock_talles || {}).some(s => s > 0);
 
   return (
     <div className="min-h-screen bg-white text-black font-sans">
@@ -124,21 +129,10 @@ export default function ProductoDetalle() {
                 alt={producto.nombre} 
                 className="w-full h-full object-cover transition-all duration-500" 
               />
-              
               {imagenes.length > 1 && (
                 <div className="absolute inset-0 flex items-center justify-between px-4 opacity-0 hover:opacity-100 transition-opacity">
-                  <button 
-                    onClick={() => setFotoActual(prev => (prev > 0 ? prev - 1 : imagenes.length - 1))}
-                    className="bg-white/80 backdrop-blur-md p-3 rounded-full shadow-lg hover:bg-white"
-                  >
-                    ←
-                  </button>
-                  <button 
-                    onClick={() => setFotoActual(prev => (prev < imagenes.length - 1 ? prev + 1 : 0))}
-                    className="bg-white/80 backdrop-blur-md p-3 rounded-full shadow-lg hover:bg-white"
-                  >
-                    →
-                  </button>
+                  <button onClick={() => setFotoActual(prev => (prev > 0 ? prev - 1 : imagenes.length - 1))} className="bg-white/80 backdrop-blur-md p-3 rounded-full shadow-lg">←</button>
+                  <button onClick={() => setFotoActual(prev => (prev < imagenes.length - 1 ? prev + 1 : 0))} className="bg-white/80 backdrop-blur-md p-3 rounded-full shadow-lg">→</button>
                 </div>
               )}
             </div>
@@ -173,26 +167,52 @@ export default function ProductoDetalle() {
             ${producto.precio}
           </p>
           
-          <div className="space-y-6 mb-12 border-l-2 border-black pl-6">
+          <div className="space-y-6 mb-10 border-l-2 border-black pl-6">
             <p className="text-zinc-500 leading-relaxed max-w-md italic font-medium whitespace-pre-line">
               {producto.descripcion || "Sin descripción disponible."}
             </p>
           </div>
 
+          {/* --- SELECTOR DE TALLES --- */}
+          <div className="mb-10">
+            <h3 className="text-[10px] font-black uppercase tracking-widest mb-4">Seleccionar Talle</h3>
+            <div className="flex flex-wrap gap-3">
+              {Object.entries(producto.stock_talles || {}).map(([talle, stock]) => (
+                <button
+                  key={talle}
+                  disabled={stock <= 0}
+                  onClick={() => setTalleElegido(talle)}
+                  className={`min-w-15 h-12 rounded-xl text-xs font-black uppercase border-2 transition-all
+                    ${stock <= 0 
+                      ? 'border-zinc-100 text-zinc-300 cursor-not-allowed bg-zinc-50' 
+                      : talleElegido === talle 
+                        ? 'border-black bg-black text-white scale-105 shadow-lg' 
+                        : 'border-zinc-100 hover:border-black text-black'
+                    }`}
+                >
+                  {talle}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="flex flex-col gap-4">
             <div className="flex items-center gap-2 mb-4">
-              <span className={`w-2 h-2 rounded-full ${producto.stock > 0 ? 'bg-green-500' : 'bg-red-500'} animate-pulse`}></span>
+              <span className={`w-2 h-2 rounded-full ${hayStockGeneral ? 'bg-green-500' : 'bg-red-500'} animate-pulse`}></span>
               <span className="text-[10px] font-black uppercase tracking-widest">
-                {producto.stock > 0 ? `Disponible: ${producto.stock} Unidades` : 'Sin Stock'}
+                {hayStockGeneral ? 'Stock Disponible' : 'Agotado'}
               </span>
             </div>
             
             <button 
               onClick={manejarAñadirAlCarrito}
-              disabled={producto.stock <= 0}
-              className="w-full bg-black text-white py-6 rounded-4xl font-black uppercase tracking-widest hover:bg-zinc-800 transition-all shadow-2xl disabled:bg-zinc-100 disabled:text-zinc-400"
+              disabled={!hayStockGeneral}
+              className={`w-full py-6 rounded-4xl font-black uppercase tracking-widest transition-all shadow-2xl 
+                ${talleElegido 
+                  ? 'bg-black text-white hover:bg-zinc-800' 
+                  : 'bg-zinc-100 text-zinc-400 cursor-not-allowed'}`}
             >
-              {producto.stock > 0 ? 'Añadir al carrito' : 'Agotado'}
+              {!hayStockGeneral ? 'Agotado' : talleElegido ? 'Añadir al carrito' : 'Seleccioná un talle'}
             </button>
           </div>
         </div>
